@@ -513,7 +513,7 @@ static void run_input_tests(struct app *app, struct wl_display *d)
     double rx = ox + 150, ry = oy + 70;
     vptr_move(app, d, rx, ry);
     alt_drag(app, d, BTN_RIGHT, rx, ry, rx + 50, ry + 30);
-    expect_configure(app, d, 0, 0, W + 51, H + 30, "Alt+right-drag resizes by the drag distance");
+    expect_configure(app, d, 0, 0, W + 50, H + 30, "Alt+right-drag resizes by the drag distance");
 
     /* 7. minimize and restore with the keyboard; keyboard focus follows */
     int leaves = app->kb_leave, enters = app->kb_enter;
