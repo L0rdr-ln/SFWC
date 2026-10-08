@@ -151,6 +151,8 @@ static void install_default_keybinds(struct config *c)
     add_keybind(c, m, "m", ACTION_MINIMIZE, NULL);
     add_keybind(c, m | CFG_MOD_SHIFT, "m", ACTION_RESTORE, NULL);
     add_keybind(c, m | CFG_MOD_SHIFT, "r", ACTION_RELOAD, NULL);
+    add_keybind(c, m, "o", ACTION_MOVE_OUTPUT, NULL);
+    add_keybind(c, m | CFG_MOD_SHIFT, "o", ACTION_FOCUS_OUTPUT, NULL);
     add_keybind(c, m, "Escape", ACTION_QUIT, NULL);
 }
 

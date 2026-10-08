@@ -3,17 +3,27 @@
 Versions follow the roadmap milestones while the project is pre-1.0:
 `0.<milestone>.0` (v0.2.0 = M2). Dates are UTC.
 
-## Unreleased – M3 "Configuration"
+## Unreleased – M3 "Configuration" and M1–M3 completion
 
 ### Added
-- Config file (`~/.config/sfwc/sfwc.conf` or `$SFWC_CONFIG`): gap, snapping, focus mode,
-  terminal, configurable keybinds and mouse binds (`$mod`, any xkb key, `spawn:<cmd>`),
-  `[autostart]` commands. Errors are logged with line numbers and never stop the compositor.
+- Config file (`~/.config/sfwc/sfwc.conf` or `$SFWC_CONFIG`): gap, snapping (edges and other
+  windows), focus mode, terminal, configurable keybinds and mouse binds (`$mod`, any xkb key,
+  `spawn:<cmd>`), `[autostart]` commands. Errors are logged with line numbers and never stop
+  the compositor.
+- `[keyboard]` section (xkb layout/variant/options, repeat rate and delay) and `[output:NAME]`
+  sections (scale, position, enabled).
 - Live reload when the file is saved, plus the `reload-config` action (Alt+Shift+r).
-- `src/config.c` parser with unit tests; end-to-end test covers reload and autostart.
+- Multi-monitor: windows open on the output under the pointer, maximize/fullscreen/snapping use
+  that output's logical size, `move-to-next-output` (Alt+o) and `focus-next-output`
+  (Alt+Shift+o), `xdg-output` protocol for clients.
+- Snapping to other windows while moving.
+- `SFWC_LOG_LEVEL` (debug logs every action).
+- Tests: parser/config unit tests, and three end-to-end runs (single output, two outputs with
+  different scale/position, nested inside another sfwc) using virtual keyboard and pointer.
 
 ### Changed
 - Keybinds match the exact modifier set and the unshifted key (`Shift+m` instead of `M`).
+- Keybind actions apply to the window that has keyboard focus (was: the front window).
 
 ## v0.2.0 – 2026-10-08 – "Usable floating WM" (alpha)
 

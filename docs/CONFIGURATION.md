@@ -33,7 +33,10 @@ are safe. Booleans: `true/false/yes/no/on/off/1/0`.
 | general | `mod` | `Alt` (default), `Super`, `Ctrl`, `Shift` | what `$mod` means in binds; set it **before** the binds |
 | windows | `gap` | 0–200, `8` | space to screen edges when placing, maximizing, snapping |
 | windows | `snap_to_edges` | bool, `true` | snap moved windows to screen edges |
-| windows | `snap_distance` | 0–200, `12` | px from an edge at which snapping happens |
+| windows | `snap_to_windows` | bool, `true` | also snap to other windows' edges, keeping `gap` between them |
+| windows | `snap_distance` | 0–200, `12` | px from an edge or window at which snapping happens |
+| keyboard | `rules model layout variant options` | xkb names, system default | keyboard layout, e.g. `layout = de`, `options = caps:escape`; an invalid layout is reported and the default is used |
+| keyboard | `repeat_rate` / `repeat_delay` | 0–1000 / 0–10000, `25` / `600` | key repeat (characters per second, ms before repeating; rate 0 = off) |
 | windows | `default_layout` | `floating` | only floating exists |
 | animations | `enabled open close move resize duration_ms easing` | see `config/sfwc.conf` | validated now, used once animations land |
 
@@ -60,8 +63,25 @@ $mod+Shift+m = restore-minimized
 | `toggle-maximize` / `toggle-fullscreen` | toggle for the focused window |
 | `minimize` / `restore-minimized` | hide the focused window / bring back the last hidden one |
 | `cycle-windows` | focus and raise the bottom-most visible window |
+| `move-to-next-output` | send the focused window to the next output (left to right, then top to bottom, wrapping); maximized/fullscreen windows are re-fitted |
+| `focus-next-output` | move the pointer to the middle of the next output and focus its top window |
 | `reload-config` | re-read the config file |
 | `quit` | exit the compositor |
+
+## Outputs (monitors)
+
+```ini
+[output:HDMI-A-1]
+scale = 1.5
+position = 1920,0
+```
+
+`NAME` is the name the compositor logs when the output appears (`output HDMI-A-1 added`).
+`scale` (0.25-10) and `position` (`x,y` in layout pixels; without it outputs are placed
+left to right) are applied on start and on reload. `enabled = false` switches an output off
+(read when the output appears). Maximizing, snapping and the "next output" actions use the
+output's *logical* size, i.e. the mode divided by the scale. New windows open on the output
+under the pointer. Clients can read the layout through `xdg-output`.
 
 ## Mouse
 
@@ -88,7 +108,19 @@ clients, so they connect to it. Expansions: `$terminal`, `$theme` (theme name), 
 Expanding individual theme *values* (colors, fonts) belongs to the theme templating work,
 see [THEMES.md](THEMES.md).
 
-## Testing aids
+## Environment variables
 
-`SFWC_ENABLE_VIRTUAL_INPUT=1` exposes the virtual keyboard/pointer protocols so tests can
-inject input. Leave it unset: any client could otherwise type into your session.
+| Variable | Meaning |
+|---|---|
+| `SFWC_CONFIG` | path of the config file |
+| `SFWC_TERMINAL` | default for `terminal` |
+| `SFWC_LOG_LEVEL` | `debug`, `info` (default), `error`, `silent`; debug logs every action |
+| `XCURSOR_THEME`, `XCURSOR_SIZE` | cursor theme and size |
+
+Testing aids (used by the test suite; leave them unset):
+
+| Variable | Meaning |
+|---|---|
+| `SFWC_ENABLE_VIRTUAL_INPUT=1` | expose the virtual keyboard/pointer protocols so tests can inject input; any client could otherwise type into your session |
+| `SFWC_TEST_OUTPUTS=1024x600,...` | add extra headless outputs (only with `WLR_BACKENDS=headless`) |
+| `SFWC_NO_CONFIG_WATCH=1` | do not watch the config file; only `reload-config` reloads |

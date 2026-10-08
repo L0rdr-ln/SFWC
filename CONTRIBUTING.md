@@ -15,15 +15,25 @@
 Code style: C11, 4-space indent, Linux-style braces, no global state where a
 struct passed around will do. Prefer wlroots' scene graph API for rendering.
 
-## Testing input
+## Tests
 
-`tests/client_test.c` drives sfwc with the wlroots virtual keyboard/pointer
-protocols. Those protocols let any client inject input, so sfwc only exposes
-them when started with `SFWC_ENABLE_VIRTUAL_INPUT=1` (the test script sets it).
-The protocol XML files are taken from the wlroots subproject; with a system
-wlroots the input part of the test is skipped (meson prints a warning).
-A test that has never failed proves little: when adding a check, break the
-expectation once and confirm it goes red.
+`meson test -C build` runs, besides the parser/config unit tests, three end-to-end runs of
+`tests/run_client_test.sh` with the client in `tests/client_test.c`:
+
+| Test | What it covers |
+|---|---|
+| `compositor-client-single` | one headless output: windows, popups, maximize/fullscreen/minimize, virtual keyboard + pointer, snapping to edges and to another window, Alt+Return terminal, keyboard repeat, `xdg-output`, live config reload (errors with line numbers, autostart) |
+| `compositor-client-multi` | two outputs with different size, scale and position: placement and maximize per output, `focus = follow-mouse`, move/focus to the next output, `reload-config` key, bad keyboard layout fallback |
+| `compositor-client-nested` | the single scenario with `sfwc` using the wayland backend inside a headless `sfwc`, like starting it in another Wayland session |
+
+Input is injected with the wlroots virtual keyboard/pointer protocols. Those let any client
+inject input, so sfwc only exposes them when started with `SFWC_ENABLE_VIRTUAL_INPUT=1`
+(the script sets it). The protocol XML files come from the wlroots subproject; with a system
+wlroots the input part is skipped (meson prints a warning). On failure the script prints the
+compositor's log, which runs at `SFWC_LOG_LEVEL=debug`.
+
+A test that has never failed proves little: when adding a check, break the expectation once
+and confirm it goes red.
 
 ## Releases
 

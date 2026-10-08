@@ -58,6 +58,7 @@ changed in the config, see [docs/CONFIGURATION.md](docs/CONFIGURATION.md):
 | Alt+f / Alt+F11 | toggle maximize / fullscreen |
 | Alt+m / Alt+Shift+m | minimize / restore last minimized |
 | Alt+drag (left / right button) | move / resize window |
+| Alt+o / Alt+Shift+o | move window to the next output / focus the next output |
 | Alt+Shift+r | reload the config |
 | Alt+Esc | quit |
 
