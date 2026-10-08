@@ -11,3 +11,4 @@
 - [ ] Maximize / minimize / fullscreen, edge snapping
 - [ ] Layer-shell (bars, wallpapers), workspaces
 - [ ] Xwayland, screenshots, packaging
+- [ ] Publish `sfwc-themes` as its own package/repo with more themes

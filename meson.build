@@ -16,4 +16,3 @@ executable('sfwc',
   install: true)
 
 install_data('config/sfwc.conf', install_dir: get_option('datadir') / 'sfwc')
-install_subdir('config/themes', install_dir: get_option('datadir') / 'sfwc')

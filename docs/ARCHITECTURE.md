@@ -11,7 +11,7 @@ view.c        xdg-toplevel windows: stacking order, move/resize, focus
 decor.c       server-side decorations drawn from the active theme
 input.c       seat, keyboard, pointer, keybinds
 config.c      parser for sfwc.conf, reload handling
-theme.c       parser for *.theme files
+theme.c       parser for *.theme files; built-in fallback theme, files come from sfwc-themes
 anim.c        animation engine (tweens driven by the frame clock)
 ```
 

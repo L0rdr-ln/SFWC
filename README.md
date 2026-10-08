@@ -15,7 +15,9 @@ window decorations and animations.
 - **Simple configuration** – one plain-text file, sensible defaults, live
   reload. No scripting language required.
 - **Themes** – colors, borders, title bars, corner radius, shadows and fonts
-  defined in small theme files you can swap or share.
+  defined in small theme files you can swap or share. Themes ship as a
+  separate optional package ([`themes/`](themes/)); the compositor runs fine
+  with its built-in minimal look.
 - **Animations** – configurable open/close/move/resize/workspace animations
   with adjustable duration and easing, or turn them off entirely.
 - **Small and readable** – written in C against wlroots; easy to hack on.
@@ -48,8 +50,9 @@ Copy the example config and edit it:
 ```sh
 mkdir -p ~/.config/sfwc
 cp config/sfwc.conf ~/.config/sfwc/sfwc.conf
-cp -r config/themes ~/.config/sfwc/
 ```
+
+Themes are optional and installed separately, see [themes/README.md](themes/README.md).
 
 See [docs/CONFIGURATION.md](docs/CONFIGURATION.md) for all options and
 [docs/THEMES.md](docs/THEMES.md) for writing themes.
