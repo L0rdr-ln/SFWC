@@ -29,7 +29,7 @@ Dependencies (names are for Debian/Ubuntu; check your distro):
 
 | Dependency | Package |
 |---|---|
-| wlroots 0.18 | `libwlroots-0.18-dev` (or build from source) |
+| wlroots 0.18 | `libwlroots-0.18-dev` where available; otherwise meson builds it automatically from `subprojects/wlroots.wrap` |
 | wayland-server, wayland-protocols | `libwayland-dev wayland-protocols` |
 | xkbcommon | `libxkbcommon-dev` |
 | pixman | `libpixman-1-dev` |
@@ -38,6 +38,7 @@ Dependencies (names are for Debian/Ubuntu; check your distro):
 ```sh
 meson setup build
 meson compile -C build
+meson test -C build
 ./build/sfwc            # run from a TTY, or nested inside another compositor
 ```
 

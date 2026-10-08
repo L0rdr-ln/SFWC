@@ -3,11 +3,15 @@
 Each milestone should leave `sfwc` runnable (nested first, TTY later). Items
 are roughly in build order; check them off as they land.
 
-## M0 – Foundation  *(current)*
+## M0 – Foundation  *(done, except the one item below)*
 - [x] Repo layout, meson build, docs, example config and themes
-- [ ] Verify build against wlroots 0.18 in CI (make the CI job fail on errors)
-- [ ] Debug build option with ASan/UBSan documented and used in CI
-- [ ] Vendor inih; decide and document comment rules (full-line only)
+- [x] Vendor inih (r58, `third_party/inih`); comment rules: full-line only
+- [x] Parser tests (`meson test`) covering the shipped config and themes
+- [x] ASan/UBSan builds documented (CONTRIBUTING) and used in CI
+- [x] CI fails on errors; wlroots 0.18 comes from `subprojects/wlroots.wrap`
+- [ ] **Confirm `src/main.c` compiles against wlroots 0.18** – not yet verified:
+      no 0.18 package exists on Ubuntu 24.04 and the dev sandbox could not reach
+      gitlab.freedesktop.org. The first CI run on GitHub decides this.
 
 ## M1 – A window on screen
 - [ ] Server struct, signal handling, clean shutdown

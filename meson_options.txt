@@ -1,0 +1,2 @@
+option('compositor', type: 'boolean', value: true,
+  description: 'Build the sfwc compositor (needs wlroots). Disable to build only the parser and tests.')
