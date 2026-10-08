@@ -1207,7 +1207,7 @@ static void run_deco(struct app *app, struct wl_display *d)
     expect_px(&img, 49, 108, C_BORDER_F, "left border");
     expect_px(&img, 254, 108, C_BORDER_F, "right border");
     expect_px(&img, 148, 178, C_BORDER_F, "bottom border");
-    expect_px(&img, 148, 62, C_TITLE_F, "titlebar (focused)");
+    expect_px(&img, 148, 53, C_TITLE_F, "titlebar (focused)");
     expect_px(&img, 152, 126, C_CLIENT, "client content");
     expect_px(&img, 240, 64, C_CLOSE, "close button");
     expect_px(&img, 222, 64, C_MAX, "maximize button");
@@ -1239,7 +1239,7 @@ static void run_deco(struct app *app, struct wl_display *d)
     vdrag(app, d, 112, 64, 100, 60);
     img = capture_screen(app, d);
     expect_px(&img, 248, 109, C_BORDER_F, "top border after dragging the titlebar");
-    expect_px(&img, 248, 122, C_TITLE_F, "titlebar after dragging");
+    expect_px(&img, 248, 113, C_TITLE_F, "titlebar after dragging");
     expect_px(&img, 252, 186, C_CLIENT, "content after dragging");
     expect_not_px(&img, 148, 49, C_BORDER_F, "old position is empty");
     free(img.px);
@@ -1260,7 +1260,7 @@ static void run_deco(struct app *app, struct wl_display *d)
     wl_display_roundtrip(d);
     img = capture_screen(app, d);
     expect_px(&img, 600, 9, C_BORDER_F, "top border of the maximized window");
-    expect_px(&img, 600, 24, C_TITLE_F, "titlebar of the maximized window");
+    expect_px(&img, 600, 13, C_TITLE_F, "titlebar of the maximized window");
     expect_px(&img, 600, 300, C_CLIENT, "content of the maximized window");
     free(img.px);
 
@@ -1289,7 +1289,7 @@ static void run_deco(struct app *app, struct wl_display *d)
     win_open_ex(app, d, &b, "second", C_CLIENT, 1, 1);
     img = capture_screen(app, d);
     expect_px(&img, 340, 109, C_BORDER_U, "unfocused border");
-    expect_px(&img, 340, 122, C_TITLE_U, "unfocused titlebar");
+    expect_px(&img, 340, 113, C_TITLE_U, "unfocused titlebar");
     expect_px(&img, 180, 81, C_BORDER_F, "focused border of the second window");
     free(img.px);
 
@@ -1319,7 +1319,7 @@ static void run_deco(struct app *app, struct wl_display *d)
         fail("the theme was not reloaded (border color did not change)");
     }
     img = capture_screen(app, d);
-    expect_px(&img, 340, 122, 0xabcdef, "titlebar color of the reloaded theme");
+    expect_px(&img, 340, 113, 0xabcdef, "titlebar color of the reloaded theme");
     free(img.px);
 
     win_destroy(d, &a);

@@ -1397,10 +1397,15 @@ static void decoration_apply(struct toplevel *t)
         return;
     }
     bool server_side = t->server->config.decorations;
-    wlr_xdg_toplevel_decoration_v1_set_mode(
-        t->decoration, server_side ? WLR_XDG_TOPLEVEL_DECORATION_V1_MODE_SERVER_SIDE
-                                   : WLR_XDG_TOPLEVEL_DECORATION_V1_MODE_CLIENT_SIDE);
     t->ssd = server_side;
+    /* wlroots refuses to schedule a configure before the surface's initial commit; the
+     * mode is sent from toplevel_commit() then. */
+    struct wlr_xdg_surface *base = t->xdg_toplevel->base;
+    if (base->initialized || base->initial_commit) {
+        wlr_xdg_toplevel_decoration_v1_set_mode(
+            t->decoration, server_side ? WLR_XDG_TOPLEVEL_DECORATION_V1_MODE_SERVER_SIDE
+                                       : WLR_XDG_TOPLEVEL_DECORATION_V1_MODE_CLIENT_SIDE);
+    }
     frame_refresh(t);
 }
 
@@ -1499,6 +1504,7 @@ static void toplevel_commit(struct wl_listener *listener, void *data)
 {
     struct toplevel *toplevel = wl_container_of(listener, toplevel, commit);
     if (toplevel->xdg_toplevel->base->initial_commit) {
+        decoration_apply(toplevel);
         if (toplevel->maximized || toplevel->fullscreen) {
             /* requested before the first commit: size it for the output now */
             toplevel_apply_state(toplevel, toplevel->maximized, toplevel->fullscreen);
