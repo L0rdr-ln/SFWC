@@ -1197,7 +1197,7 @@ static void run_deco(struct app *app, struct wl_display *d)
     const char *fonts = getenv("SFWC_TEST_FONTS");
 
     struct win a, b;
-    win_open_ex(app, d, &a, "decorated window with a rather long title", C_CLIENT, 1, 1);
+    win_open_ex(app, d, &a, "decorated window with a rather long title", 0xff000000u | C_CLIENT, 1, 1);
     setup_virtual_devices(app, d, 1);
     wl_display_roundtrip(d);
 
@@ -1286,7 +1286,7 @@ static void run_deco(struct app *app, struct wl_display *d)
     free(img.px);
 
     /* a second decorated window takes the focus: the first one is drawn unfocused */
-    win_open_ex(app, d, &b, "second", C_CLIENT, 1, 1);
+    win_open_ex(app, d, &b, "second", 0xff000000u | C_CLIENT, 1, 1); /* opaque: alpha byte set */
     img = capture_screen(app, d);
     expect_px(&img, 340, 109, C_BORDER_U, "unfocused border");
     expect_px(&img, 340, 113, C_TITLE_U, "unfocused titlebar");
