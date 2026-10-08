@@ -398,8 +398,8 @@ static const struct wl_registry_listener registry_listener = {
     .global_remove = registry_remove,
 };
 
-/* Dispatch events until *flag becomes non-zero, or fail after timeout_ms. */
-static void wait_for(struct wl_display *display, const int *flag, int timeout_ms, const char *what)
+/* Dispatch events until *flag becomes non-zero. Returns 0 on timeout. */
+static int wait_flag(struct wl_display *display, const int *flag, int timeout_ms)
 {
     while (!*flag) {
         while (wl_display_prepare_read(display) != 0) {
@@ -410,14 +410,23 @@ static void wait_for(struct wl_display *display, const int *flag, int timeout_ms
         int r = poll(&pfd, 1, timeout_ms);
         if (r <= 0) {
             wl_display_cancel_read(display);
-            char msg[128];
-            snprintf(msg, sizeof msg, "timeout waiting for %s", what);
-            fail(msg);
+            return 0;
         }
         if (wl_display_read_events(display) < 0) {
             fail("connection lost (compositor crashed?)");
         }
         wl_display_dispatch_pending(display);
+    }
+    return 1;
+}
+
+/* Like wait_flag, but a timeout is a test failure. */
+static void wait_for(struct wl_display *display, const int *flag, int timeout_ms, const char *what)
+{
+    if (!wait_flag(display, flag, timeout_ms)) {
+        char msg[128];
+        snprintf(msg, sizeof msg, "timeout waiting for %s", what);
+        fail(msg);
     }
 }
 
@@ -431,7 +440,9 @@ static void expect_configure(struct app *app, struct wl_display *display, int ma
             return;
         }
         app->cfg_arrived = 0;
-        wait_for(display, &app->cfg_arrived, 3000, what);
+        if (!wait_flag(display, &app->cfg_arrived, 3000)) {
+            break; /* report what we last saw below */
+        }
     }
     char msg[256];
     snprintf(msg, sizeof msg, "%s: last configure max=%d fs=%d size=%dx%d, wanted max=%d fs=%d %dx%d",
@@ -511,7 +522,9 @@ static void win_expect(struct win *w, struct wl_display *d, int max, int fs, int
             return;
         }
         w->cfg_arrived = 0;
-        wait_for(d, &w->cfg_arrived, 3000, what);
+        if (!wait_flag(d, &w->cfg_arrived, 3000)) {
+            break; /* report what we last saw below */
+        }
     }
     char msg[256];
     snprintf(msg, sizeof msg, "%s: last configure max=%d fs=%d size=%dx%d, wanted max=%d fs=%d %dx%d",

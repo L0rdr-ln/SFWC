@@ -10,7 +10,7 @@ SFWC="$1"; CLIENT="$2"; MODE="${3:-single}"
 
 TMP="$(mktemp -d)"
 export XDG_RUNTIME_DIR="$TMP"; chmod 700 "$TMP"
-export WLR_BACKENDS=headless WLR_RENDERER=pixman SFWC_ENABLE_VIRTUAL_INPUT=1
+export WLR_BACKENDS=headless WLR_RENDERER=pixman SFWC_ENABLE_VIRTUAL_INPUT=1 SFWC_LOG_LEVEL=debug
 export ASAN_OPTIONS=detect_leaks=0:detect_odr_violation=0
 LOG="$TMP/sfwc.log"
 export SFWC_CONFIG="$TMP/sfwc.conf"

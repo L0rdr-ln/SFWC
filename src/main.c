@@ -261,6 +261,9 @@ static void toplevel_apply_state(struct toplevel *t, bool max, bool fs)
     wlr_xdg_toplevel_set_fullscreen(t->xdg_toplevel, fs);
 
     struct wlr_box box = output_box_at(t->server, ref.x + ref.width / 2.0, ref.y + ref.height / 2.0);
+    wlr_log(WLR_DEBUG, "apply state max=%d fs=%d, output box %d,%d %dx%d (window centre %.0f,%.0f)",
+            max, fs, box.x, box.y, box.width, box.height, ref.x + ref.width / 2.0,
+            ref.y + ref.height / 2.0);
     if ((fs || max) && box.width > 0) {
         int inset = fs ? 0 : t->server->config.gap;
         toplevel_move_to(t, box.x + inset, box.y + inset);
@@ -516,6 +519,8 @@ static void focus_next_output(struct server *server)
 static void dispatch_action(struct server *server, enum action action, const char *arg)
 {
     struct toplevel *top = focused_visible(server);
+    wlr_log(WLR_DEBUG, "action %s, focused window: %s", action_name(action),
+            top && top->xdg_toplevel->title ? top->xdg_toplevel->title : "(none)");
     switch (action) {
     case ACTION_QUIT:
         wl_display_terminate(server->display);
@@ -1432,7 +1437,17 @@ int main(int argc, char *argv[])
         return EXIT_FAILURE;
     }
 
-    wlr_log_init(WLR_INFO, NULL);
+    /* SFWC_LOG_LEVEL=debug|info|error|silent (default info) */
+    enum wlr_log_importance log_level = WLR_INFO;
+    const char *lvl = getenv("SFWC_LOG_LEVEL");
+    if (lvl && !strcmp(lvl, "debug")) {
+        log_level = WLR_DEBUG;
+    } else if (lvl && !strcmp(lvl, "error")) {
+        log_level = WLR_ERROR;
+    } else if (lvl && !strcmp(lvl, "silent")) {
+        log_level = WLR_SILENT;
+    }
+    wlr_log_init(log_level, NULL);
 
     struct server server = {0};
     server.display = wl_display_create();
