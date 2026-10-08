@@ -26,14 +26,16 @@ if get_option('compositor')
   vkbd_xml = wlr_protocol_dir / 'virtual-keyboard-unstable-v1.xml'
   vptr_xml = wlr_protocol_dir / 'wlr-virtual-pointer-unstable-v1.xml'
   if fs.exists(vkbd_xml) and fs.exists(vptr_xml)
+    # Paths are passed as plain strings: meson's sandbox rejects `input:` files that
+    # live inside a nested subproject.
     foreach name : ['virtual-keyboard-unstable-v1', 'wlr-virtual-pointer-unstable-v1']
       xml = wlr_protocol_dir / name + '.xml'
       client_sources += custom_target(name + '-client-protocol.h',
-        input: xml, output: name + '-client-protocol.h',
-        command: [wayland_scanner, 'client-header', '@INPUT@', '@OUTPUT@'])
+        output: name + '-client-protocol.h',
+        command: [wayland_scanner, 'client-header', xml, '@OUTPUT@'])
       client_sources += custom_target(name + '-protocol.c',
-        input: xml, output: name + '-protocol.c',
-        command: [wayland_scanner, 'private-code', '@INPUT@', '@OUTPUT@'])
+        output: name + '-protocol.c',
+        command: [wayland_scanner, 'private-code', xml, '@OUTPUT@'])
     endforeach
     client_deps += xkbcommon
     client_args += '-DHAVE_VIRTUAL_INPUT'
