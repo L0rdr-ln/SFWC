@@ -1,6 +1,6 @@
 # Architecture
 
-SFWC is a single-process C program on top of wlroots 0.18.
+SFWC is a single-process C program on top of wlroots 0.20.
 
 The compositor is split by topic. All modules share `src/server.h` (the `struct server`,
 `struct toplevel`, `struct output`, ... and the functions the modules call from each other);
@@ -53,14 +53,14 @@ Companion tools only work if the matching protocols exist. Implemented: `xdg-she
 `xdg-decoration`, `xdg-output`, `wlr-layer-shell` (bar, wallpaper, launcher), `ext-session-lock`
 (lock screen), `ext-idle-notify` and idle inhibit (idle daemon),
 `wlr-foreign-toplevel-management` (taskbar), `wlr-screencopy` (screenshots), primary selection
-and `wlr-data-control` (clipboard managers). Not yet: a workspace protocol (`ext-workspace`),
-`ext-image-copy-capture`, Xwayland.
+and `wlr-data-control` (clipboard managers). Not yet: a workspace protocol (`ext-workspace`,
+which wlroots 0.20 now provides), `ext-image-copy-capture` (wlroots 0.19+), Xwayland.
 
 ## Libraries beyond wlroots
 
 wayland-protocols, xkbcommon, libxcursor (cursor themes), cairo + pango (title
 text in decorations), inih (config/theme parser, vendored). libinput, libdrm
-and seatd come in through wlroots. Pin wlroots to 0.18; it changes API every
+and seatd come in through wlroots. Pin wlroots to 0.20; it changes API every
 minor release. Debug builds: `meson setup build -Db_sanitize=address,undefined`.
 
 Config reload uses inotify on the config **directory** (editors replace files

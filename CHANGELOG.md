@@ -6,6 +6,12 @@ Versions follow the roadmap milestones while the project is pre-1.0:
 ## Unreleased – M3 "Configuration" and M1–M3 completion
 
 ### Changed
+- Builds against **wlroots 0.20.0** (was 0.18.2). Needs wayland >= 1.24 and xkbcommon >= 1.8,
+  which meson builds from `subprojects/` when the system's are older (new `xkbcommon.wrap`;
+  `bison` and `flex` are needed for that). The only API change that affected the code was the
+  removal of `wlr_xdg_surface_get_geometry()`: the window geometry is now read from
+  `wlr_xdg_surface.geometry`. All unit and end-to-end tests pass unchanged on 0.20.
+- CI runs only sfwc's own tests (`--suite sfwc`): the wlroots subprojects bring slow tests of their own.
 - `src/main.c` (3000 lines) is split into modules by topic (window, output, input, cursor,
   layers, lock, ...) around a shared `src/server.h`; no behavior change.
 

@@ -8,8 +8,8 @@ are roughly in build order; check them off as they land.
 - [x] Vendor inih (r58, `third_party/inih`); comment rules: full-line only
 - [x] Parser tests (`meson test`) covering the shipped config and themes
 - [x] ASan/UBSan builds documented (CONTRIBUTING) and used in CI
-- [x] CI fails on errors; wlroots 0.18 comes from `subprojects/wlroots.wrap`
-- [x] `src/main.c` compiles against wlroots 0.18.2 (built from the wraps) in CI, with ASan/UBSan
+- [x] CI fails on errors; wlroots comes from `subprojects/wlroots.wrap` (0.20.0 on this branch, 0.18.2 on older ones)
+- [x] the compositor builds against wlroots 0.18.2 and 0.20.0 (built from the wraps) in CI, with ASan/UBSan
 
 ## M1 – A window on screen  *(done; tested in CI headless and nested)*
 - [x] Server struct, signal handling (SIGINT/SIGTERM), clean shutdown

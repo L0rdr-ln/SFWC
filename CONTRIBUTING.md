@@ -2,7 +2,7 @@
 
 1. Install the dependencies listed in the [README](README.md#build).
 2. `meson setup build && meson compile -C build`
-   (uses system wlroots 0.18 if installed, otherwise builds it from
+   (uses system wlroots 0.20 if installed, otherwise builds it from
    `subprojects/wlroots.wrap`; needs git and network)
    - Only the parser and tests, no wlroots: `meson setup build -Dcompositor=false`
    - Sanitizer build: `meson setup build -Db_sanitize=address,undefined -Db_lundef=false`
