@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
 # Starts sfwc on the headless backend, runs the test client against it and checks the
 # compositor's log and side effects.
-# Usage: run_client_test.sh <sfwc> <client_test> [single|multi|nested]
+# Usage: run_client_test.sh <sfwc> <client_test> [single|multi|nested|deco]
 #   single: one output, input, snapping, live config reload, autostart, terminal
 #   multi:  two outputs (different size/scale/position), follow-mouse, output actions,
 #           reload-config key (config file watching is switched off)
+#   deco:   server-side decorations drawn from a theme: screen captures are checked pixel by
+#           pixel, the frame is clicked and dragged, the theme is reloaded live
 #   nested: the single scenario, but sfwc runs with the wayland backend as a window of a
 #           second (headless) sfwc, like `./sfwc` started inside another Wayland session
 set -u
@@ -34,6 +36,41 @@ repeat_delay = 250
 exec = touch \$runtime/autostart-ran
 exec = echo "\$terminal \$theme" > \$runtime/autostart-expanded
 CONF
+    ;;
+deco)
+    # Theme with distinct colors; shadow is white so that it is visible on the black background.
+    mkdir -p "$TMP/themes"
+    cat >"$TMP/themes/test.theme" <<'THEME'
+format = 1
+name = Test
+[colors]
+background = #101010
+border_focused = #ff0000
+border_unfocused = #0000ff
+titlebar_focused = #00ff00
+titlebar_unfocused = #ffff00
+title_text = #ffffff
+close_button = #ff00ff
+maximize_button = #00ffff
+minimize_button = #ff8000
+[geometry]
+border_width = 4
+titlebar_height = 24
+corner_radius = 10
+button_size = 12
+button_spacing = 6
+[shadow]
+enabled = true
+radius = 20
+offset_y = 6
+color = #ffffff80
+[font]
+family = sans
+size = 10
+THEME
+    sed -e 's/#ff0000/#123456/' -e 's/#00ff00/#abcdef/' "$TMP/themes/test.theme" >"$TMP/themes/test2.theme"
+    printf '[general]\ntheme = test\n' >"$SFWC_CONFIG"
+    if fc-list 2>/dev/null | grep -q .; then export SFWC_TEST_FONTS=1; fi
     ;;
 multi)
     # HEADLESS-2 is added by SFWC_TEST_OUTPUTS: 1024x600, scale 2 (logical 512x300), placed
@@ -122,6 +159,11 @@ grep -q "output .* added" "$LOG" || fail "no output was created"
 grep -q "window unmapped" "$LOG" || fail "window was never unmapped"
 
 case "$MODE" in
+deco)
+    grep -q "window mapped.*decorated window" "$LOG" || fail "window was never mapped"
+    [ "$(grep -c 'theme loaded' "$LOG")" -ge 2 ] || fail "theme was not loaded at startup and again on reload"
+    grep -q "theme .* not found" "$LOG" && fail "a theme was not found"
+    ;;
 single|nested)
     grep -q "window mapped.*sfwc-test-window" "$LOG" || fail "window was never mapped"
     grep -q "sfwc.conf:4: snap_distance" "$LOG" || fail "invalid config line was not reported with its line number"

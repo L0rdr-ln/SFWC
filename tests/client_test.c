@@ -22,10 +22,12 @@
 #include <linux/input-event-codes.h>
 #include <wayland-client.h>
 #include "xdg-output-unstable-v1-client-protocol.h"
+#include "xdg-decoration-unstable-v1-client-protocol.h"
 #include "xdg-shell-client-protocol.h"
 #ifdef HAVE_VIRTUAL_INPUT
 #include <xkbcommon/xkbcommon.h>
 #include "virtual-keyboard-unstable-v1-client-protocol.h"
+#include "wlr-screencopy-unstable-v1-client-protocol.h"
 #include "wlr-virtual-pointer-unstable-v1-client-protocol.h"
 #endif
 
@@ -48,12 +50,18 @@ struct out_info {
 
 /* A plain toplevel window with its last configure. */
 struct win {
+    struct app *app;
     struct wl_surface *surface;
     struct xdg_surface *xs;
     struct xdg_toplevel *tl;
+    struct zxdg_toplevel_decoration_v1 *deco;
     struct wl_buffer *buf;
     int configured, closed;
     int cfg_arrived, cfg_w, cfg_h, cfg_max, cfg_fs;
+    /* optional: follow the compositor's size by re-attaching a buffer of that size */
+    int auto_buffer, buf_w, buf_h, pend_w, pend_h;
+    uint32_t color;
+    int deco_mode;
 };
 
 struct app {
@@ -61,6 +69,7 @@ struct app {
     struct wl_shm *shm;
     struct xdg_wm_base *wm_base;
     struct zxdg_output_manager_v1 *xdg_out_mgr;
+    struct zxdg_decoration_manager_v1 *deco_mgr;
     struct out_info outs[MAX_OUTS];
     int n_outs;
     struct wl_output *output; /* first output */
@@ -95,6 +104,7 @@ struct app {
     double ptr_sx, ptr_sy;        /* last pointer position, surface-local */
 #ifdef HAVE_VIRTUAL_INPUT
     struct zwlr_virtual_pointer_manager_v1 *vptr_mgr;
+    struct zwlr_screencopy_manager_v1 *screencopy_mgr;
     struct zwp_virtual_keyboard_manager_v1 *vkbd_mgr;
     struct zwlr_virtual_pointer_v1 *vptr;
     struct zwp_virtual_keyboard_v1 *vkbd;
@@ -371,9 +381,13 @@ static void registry_global(void *data, struct wl_registry *reg, uint32_t name,
     } else if (strcmp(interface, wl_seat_interface.name) == 0 && !app->seat) {
         app->seat = wl_registry_bind(reg, name, &wl_seat_interface, version < 5 ? version : 5);
         wl_seat_add_listener(app->seat, &seat_listener, app);
+    } else if (strcmp(interface, zxdg_decoration_manager_v1_interface.name) == 0) {
+        app->deco_mgr = wl_registry_bind(reg, name, &zxdg_decoration_manager_v1_interface, 1);
     } else if (strcmp(interface, zxdg_output_manager_v1_interface.name) == 0) {
         app->xdg_out_mgr = wl_registry_bind(reg, name, &zxdg_output_manager_v1_interface, 2);
 #ifdef HAVE_VIRTUAL_INPUT
+    } else if (strcmp(interface, zwlr_screencopy_manager_v1_interface.name) == 0) {
+        app->screencopy_mgr = wl_registry_bind(reg, name, &zwlr_screencopy_manager_v1_interface, 1);
     } else if (strcmp(interface, zwlr_virtual_pointer_manager_v1_interface.name) == 0) {
         app->vptr_mgr = wl_registry_bind(reg, name, &zwlr_virtual_pointer_manager_v1_interface, 1);
     } else if (strcmp(interface, zwp_virtual_keyboard_manager_v1_interface.name) == 0) {
@@ -452,10 +466,26 @@ static void expect_configure(struct app *app, struct wl_display *display, int ma
 
 /* ------------------------------------------------------- additional windows */
 
+static struct wl_buffer *make_buffer(struct wl_shm *shm, int w, int h, uint32_t color);
+
 static void win_xs_configure(void *data, struct xdg_surface *s, uint32_t serial)
 {
+    struct win *w = data;
     xdg_surface_ack_configure(s, serial);
-    ((struct win *)data)->configured = 1;
+    if (w->auto_buffer && w->configured && w->pend_w > 0 && w->pend_h > 0 &&
+        (w->pend_w != w->buf_w || w->pend_h != w->buf_h)) {
+        /* answer the new size with a buffer of that size */
+        struct wl_buffer *nb = make_buffer(w->app->shm, w->pend_w, w->pend_h, w->color);
+        wl_surface_attach(w->surface, nb, 0, 0);
+        wl_surface_commit(w->surface);
+        if (w->buf) {
+            wl_buffer_destroy(w->buf);
+        }
+        w->buf = nb;
+        w->buf_w = w->pend_w;
+        w->buf_h = w->pend_h;
+    }
+    w->configured = 1;
 }
 static const struct xdg_surface_listener win_xs_listener = {.configure = win_xs_configure};
 
@@ -465,6 +495,8 @@ static void win_tl_configure(void *data, struct xdg_toplevel *t, int32_t w, int3
     struct win *win = data;
     win->cfg_w = w;
     win->cfg_h = h;
+    win->pend_w = w;
+    win->pend_h = h;
     win->cfg_max = win->cfg_fs = 0;
     uint32_t *st;
     wl_array_for_each(st, states)
@@ -486,26 +518,60 @@ static const struct xdg_toplevel_listener win_tl_listener = {
     .close = win_tl_close,
 };
 
-static void win_open(struct app *app, struct wl_display *d, struct win *w, const char *title,
-                     uint32_t color)
+static void win_deco_configure(void *data, struct zxdg_toplevel_decoration_v1 *deco, uint32_t mode)
+{
+    ((struct win *)data)->deco_mode = mode;
+}
+static const struct zxdg_toplevel_decoration_v1_listener win_deco_listener = {
+    .configure = win_deco_configure,
+};
+
+/* want_deco: negotiate server-side decorations; auto_buffer: follow configured sizes */
+static void win_open_ex(struct app *app, struct wl_display *d, struct win *w, const char *title,
+                        uint32_t color, int want_deco, int auto_buffer)
 {
     memset(w, 0, sizeof *w);
+    w->app = app;
+    w->color = color;
+    w->auto_buffer = auto_buffer;
     w->surface = wl_compositor_create_surface(app->compositor);
     w->xs = xdg_wm_base_get_xdg_surface(app->wm_base, w->surface);
     xdg_surface_add_listener(w->xs, &win_xs_listener, w);
     w->tl = xdg_surface_get_toplevel(w->xs);
     xdg_toplevel_add_listener(w->tl, &win_tl_listener, w);
     xdg_toplevel_set_title(w->tl, title);
+    if (want_deco) {
+        if (!app->deco_mgr) {
+            fail("compositor does not offer xdg-decoration");
+        }
+        w->deco = zxdg_decoration_manager_v1_get_toplevel_decoration(app->deco_mgr, w->tl);
+        zxdg_toplevel_decoration_v1_add_listener(w->deco, &win_deco_listener, w);
+        zxdg_toplevel_decoration_v1_set_mode(w->deco, ZXDG_TOPLEVEL_DECORATION_V1_MODE_SERVER_SIDE);
+    }
     wl_surface_commit(w->surface);
     wait_for(d, &w->configured, 3000, "window configure");
+    if (want_deco && w->deco_mode != ZXDG_TOPLEVEL_DECORATION_V1_MODE_SERVER_SIDE) {
+        fail("compositor did not choose server-side decorations");
+    }
     w->buf = make_buffer(app->shm, W, H, color);
+    w->buf_w = W;
+    w->buf_h = H;
     wl_surface_attach(w->surface, w->buf, 0, 0);
     wl_surface_commit(w->surface);
     wl_display_roundtrip(d);
 }
 
+static void win_open(struct app *app, struct wl_display *d, struct win *w, const char *title,
+                     uint32_t color)
+{
+    win_open_ex(app, d, w, title, color, 0, 0);
+}
+
 static void win_destroy(struct wl_display *d, struct win *w)
 {
+    if (w->deco) {
+        zxdg_toplevel_decoration_v1_destroy(w->deco);
+    }
     xdg_toplevel_destroy(w->tl);
     xdg_surface_destroy(w->xs);
     wl_surface_destroy(w->surface);
@@ -956,6 +1022,308 @@ static void run_multi(struct app *app, struct wl_display *d)
     win_destroy(d, &b);
     win_destroy(d, &a);
 }
+
+/* --------------------------------------------------- screen capture + pixels */
+
+struct capture {
+    uint32_t format;
+    int w, h, stride;
+    int have_buffer, ready, failed, y_invert;
+};
+
+static void cap_buffer(void *data, struct zwlr_screencopy_frame_v1 *f, uint32_t format,
+                       uint32_t w, uint32_t h, uint32_t stride)
+{
+    struct capture *c = data;
+    c->format = format;
+    c->w = w;
+    c->h = h;
+    c->stride = stride;
+    c->have_buffer = 1;
+}
+static void cap_flags(void *data, struct zwlr_screencopy_frame_v1 *f, uint32_t flags)
+{
+    ((struct capture *)data)->y_invert = flags & ZWLR_SCREENCOPY_FRAME_V1_FLAGS_Y_INVERT;
+}
+static void cap_ready(void *data, struct zwlr_screencopy_frame_v1 *f, uint32_t hi, uint32_t lo,
+                      uint32_t ns)
+{
+    ((struct capture *)data)->ready = 1;
+}
+static void cap_failed(void *data, struct zwlr_screencopy_frame_v1 *f)
+{
+    ((struct capture *)data)->failed = 1;
+}
+static void cap_damage(void *d, struct zwlr_screencopy_frame_v1 *f, uint32_t x, uint32_t y,
+                       uint32_t w, uint32_t h)
+{
+}
+static void cap_linux_dmabuf(void *d, struct zwlr_screencopy_frame_v1 *f, uint32_t fmt, uint32_t w,
+                             uint32_t h)
+{
+}
+static void cap_buffer_done(void *d, struct zwlr_screencopy_frame_v1 *f) {}
+static const struct zwlr_screencopy_frame_v1_listener capture_listener = {
+    .buffer = cap_buffer,
+    .flags = cap_flags,
+    .ready = cap_ready,
+    .failed = cap_failed,
+    .damage = cap_damage,
+    .linux_dmabuf = cap_linux_dmabuf,
+    .buffer_done = cap_buffer_done,
+};
+
+struct image {
+    uint32_t *px; /* 0x00RRGGBB, top row first */
+    int w, h;
+};
+
+/* Capture the first output as it is displayed (without the cursor). */
+static struct image capture_screen(struct app *app, struct wl_display *d)
+{
+    if (!app->screencopy_mgr) {
+        fail("compositor does not offer wlr-screencopy");
+    }
+    struct capture c = {0};
+    struct zwlr_screencopy_frame_v1 *frame =
+        zwlr_screencopy_manager_v1_capture_output(app->screencopy_mgr, 0, app->output);
+    zwlr_screencopy_frame_v1_add_listener(frame, &capture_listener, &c);
+    wait_for(d, &c.have_buffer, 3000, "screencopy buffer description");
+
+    size_t size = (size_t)c.stride * c.h;
+    int fd = memfd_create("sfwc-test-capture", MFD_CLOEXEC);
+    if (fd < 0 || ftruncate(fd, size) < 0) {
+        fail("cannot create capture file");
+    }
+    uint8_t *data = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+    struct wl_shm_pool *pool = wl_shm_create_pool(app->shm, fd, size);
+    struct wl_buffer *buf = wl_shm_pool_create_buffer(pool, 0, c.w, c.h, c.stride, c.format);
+    wl_shm_pool_destroy(pool);
+    close(fd);
+    zwlr_screencopy_frame_v1_copy(frame, buf);
+    for (int i = 0; i < 200 && !c.ready && !c.failed; i++) {
+        wait_flag(d, &c.ready, 50);
+    }
+    if (c.failed) {
+        fail("screencopy failed");
+    }
+    if (!c.ready) {
+        fail("timeout waiting for the screen capture (no frame rendered?)");
+    }
+
+    struct image img = {.w = c.w, .h = c.h, .px = malloc((size_t)c.w * c.h * 4)};
+    for (int y = 0; y < c.h; y++) {
+        const uint32_t *row = (const uint32_t *)(data + (size_t)(c.y_invert ? c.h - 1 - y : y) * c.stride);
+        for (int x = 0; x < c.w; x++) {
+            img.px[y * c.w + x] = row[x] & 0x00ffffff;
+        }
+    }
+    munmap(data, size);
+    wl_buffer_destroy(buf);
+    zwlr_screencopy_frame_v1_destroy(frame);
+    return img;
+}
+
+static uint32_t img_px(const struct image *img, int x, int y)
+{
+    if (x < 0 || y < 0 || x >= img->w || y >= img->h) {
+        fail("pixel check outside the screen");
+    }
+    return img->px[y * img->w + x];
+}
+
+static int color_near(uint32_t got, uint32_t want, int tol)
+{
+    return abs((int)((got >> 16) & 0xff) - (int)((want >> 16) & 0xff)) <= tol &&
+           abs((int)((got >> 8) & 0xff) - (int)((want >> 8) & 0xff)) <= tol &&
+           abs((int)(got & 0xff) - (int)(want & 0xff)) <= tol;
+}
+
+static void expect_px(const struct image *img, int x, int y, uint32_t want, const char *what)
+{
+    uint32_t got = img_px(img, x, y);
+    if (!color_near(got, want, 3)) {
+        char msg[200];
+        snprintf(msg, sizeof msg, "%s: pixel (%d,%d) is #%06x, expected #%06x", what, x, y, got, want);
+        fail(msg);
+    }
+}
+
+static void expect_not_px(const struct image *img, int x, int y, uint32_t unwanted, const char *what)
+{
+    if (color_near(img_px(img, x, y), unwanted, 3)) {
+        char msg[200];
+        snprintf(msg, sizeof msg, "%s: pixel (%d,%d) is #%06x, which it must not be", what, x, y,
+                 img_px(img, x, y));
+        fail(msg);
+    }
+}
+
+/* Click (press + release) at a global position. */
+static void vclick(struct app *app, struct wl_display *d, double x, double y)
+{
+    vptr_move(app, d, x, y);
+    vptr_button(app, d, BTN_LEFT, 1);
+    vptr_button(app, d, BTN_LEFT, 0);
+}
+
+/* Press, move and release the left button. */
+static void vdrag(struct app *app, struct wl_display *d, double x, double y, double dx, double dy)
+{
+    vptr_move(app, d, x, y);
+    vptr_button(app, d, BTN_LEFT, 1);
+    vptr_move(app, d, x + dx, y + dy);
+    vptr_button(app, d, BTN_LEFT, 0);
+}
+
+/* --------------------------------------------------------- scenario: deco */
+
+/* Must match the theme the script writes to themes/test.theme (shadow white 50%, radius 20). */
+#define BW 4
+#define TH 24
+#define C_BORDER_F 0xff0000
+#define C_BORDER_U 0x0000ff
+#define C_TITLE_F 0x00ff00
+#define C_TITLE_U 0xffff00
+#define C_CLOSE 0xff00ff
+#define C_MAX 0x00ffff
+#define C_MIN 0xff8000
+#define C_CLIENT 0x3050c0
+
+static void run_deco(struct app *app, struct wl_display *d)
+{
+    app->ext_w = app->out_w;
+    app->ext_h = app->out_h;
+    const char *fonts = getenv("SFWC_TEST_FONTS");
+
+    struct win a, b;
+    win_open_ex(app, d, &a, "decorated window with a rather long title", C_CLIENT, 1, 1);
+    setup_virtual_devices(app, d, 1);
+    wl_display_roundtrip(d);
+
+    /* A opens cascaded at outer (48,48); content (200x100) therefore starts at (52,76) */
+    struct image img = capture_screen(app, d);
+    expect_px(&img, 148, 49, C_BORDER_F, "top border (focused)");
+    expect_px(&img, 49, 108, C_BORDER_F, "left border");
+    expect_px(&img, 254, 108, C_BORDER_F, "right border");
+    expect_px(&img, 148, 178, C_BORDER_F, "bottom border");
+    expect_px(&img, 148, 62, C_TITLE_F, "titlebar (focused)");
+    expect_px(&img, 152, 126, C_CLIENT, "client content");
+    expect_px(&img, 240, 64, C_CLOSE, "close button");
+    expect_px(&img, 222, 64, C_MAX, "maximize button");
+    expect_px(&img, 204, 64, C_MIN, "minimize button");
+    expect_not_px(&img, 48, 48, C_BORDER_F, "rounded outer corner");
+    uint32_t outside = img_px(&img, 43, 114);          /* just left of the window: shadow */
+    if (((outside >> 16) & 0xff) < 15 || ((outside >> 16) & 0xff) > 140) {
+        char msg[100];
+        snprintf(msg, sizeof msg, "shadow next to the window: pixel is #%06x", outside);
+        fail(msg);
+    }
+    expect_px(&img, 148, 240, 0x000000, "no shadow far below the window");
+    if (fonts && !strcmp(fonts, "1")) {
+        int differing = 0;
+        for (int y = 58; y < 70; y++) {
+            for (int x = 66; x < 120; x++) {
+                if (!color_near(img_px(&img, x, y), C_TITLE_F, 3)) {
+                    differing++;
+                }
+            }
+        }
+        if (differing < 20) {
+            fail("the window title was not drawn into the titlebar");
+        }
+    }
+    free(img.px);
+
+    /* drag the window by its titlebar: +100,+60 */
+    vdrag(app, d, 112, 64, 100, 60);
+    img = capture_screen(app, d);
+    expect_px(&img, 248, 109, C_BORDER_F, "top border after dragging the titlebar");
+    expect_px(&img, 248, 122, C_TITLE_F, "titlebar after dragging");
+    expect_px(&img, 252, 186, C_CLIENT, "content after dragging");
+    expect_not_px(&img, 148, 49, C_BORDER_F, "old position is empty");
+    free(img.px);
+
+    /* resize by dragging the bottom-right corner of the frame: content becomes 240x120 */
+    vdrag(app, d, 355, 239, 40, 20);
+    win_expect(&a, d, 0, 0, 240, 120, "dragging the frame corner resizes the window");
+    wl_display_roundtrip(d);
+    img = capture_screen(app, d);
+    expect_px(&img, 394, 200, C_BORDER_F, "right border after resizing");
+    expect_px(&img, 250, 258, C_BORDER_F, "bottom border after resizing");
+    expect_px(&img, 300, 200, C_CLIENT, "content fills the new size");
+    free(img.px);
+
+    /* maximize button: the whole frame fills the output minus the gap */
+    vclick(app, d, 362, 124);
+    win_expect(&a, d, 1, 0, 1264 - 2 * BW, 704 - TH - 2 * BW, "maximize button");
+    wl_display_roundtrip(d);
+    img = capture_screen(app, d);
+    expect_px(&img, 600, 9, C_BORDER_F, "top border of the maximized window");
+    expect_px(&img, 600, 24, C_TITLE_F, "titlebar of the maximized window");
+    expect_px(&img, 600, 300, C_CLIENT, "content of the maximized window");
+    free(img.px);
+
+    /* double-click on the titlebar restores it */
+    vclick(app, d, 400, 24);
+    vclick(app, d, 400, 24);
+    win_expect(&a, d, 0, 0, 240, 120, "double click on the titlebar restores");
+    wl_display_roundtrip(d);
+
+    /* fullscreen removes the frame */
+    xdg_toplevel_set_fullscreen(a.tl, NULL);
+    win_expect(&a, d, 0, 1, 1280, 720, "fullscreen");
+    wl_display_roundtrip(d);
+    img = capture_screen(app, d);
+    expect_px(&img, 3, 3, C_CLIENT, "fullscreen content reaches the corner");
+    expect_px(&img, 640, 10, C_CLIENT, "no titlebar in fullscreen");
+    free(img.px);
+    xdg_toplevel_unset_fullscreen(a.tl);
+    win_expect(&a, d, 0, 0, 240, 120, "leaving fullscreen");
+    wl_display_roundtrip(d);
+    img = capture_screen(app, d);
+    expect_px(&img, 248, 109, C_BORDER_F, "frame is back after fullscreen");
+    free(img.px);
+
+    /* a second decorated window takes the focus: the first one is drawn unfocused */
+    win_open_ex(app, d, &b, "second", C_CLIENT, 1, 1);
+    img = capture_screen(app, d);
+    expect_px(&img, 340, 109, C_BORDER_U, "unfocused border");
+    expect_px(&img, 340, 122, C_TITLE_U, "unfocused titlebar");
+    expect_px(&img, 180, 81, C_BORDER_F, "focused border of the second window");
+    free(img.px);
+
+    /* its close button asks it to close; afterwards the first window is focused again */
+    vclick(app, d, 272, 96);
+    wait_for(d, &b.closed, 3000, "xdg_toplevel.close from the close button");
+    win_destroy(d, &b);
+    img = capture_screen(app, d);
+    expect_px(&img, 340, 109, C_BORDER_F, "border is focused again after the other window closed");
+    free(img.px);
+
+    /* live theme change: other colors, same geometry */
+    const char *cfg_path = getenv("SFWC_CONFIG");
+    if (!cfg_path) {
+        fail("SFWC_CONFIG is not set (run through tests/run_client_test.sh)");
+    }
+    write_config(cfg_path, "[general]\ntheme = test2\n");
+    int changed = 0;
+    for (int i = 0; i < 40 && !changed; i++) {
+        usleep(100 * 1000);
+        wl_display_roundtrip(d);
+        img = capture_screen(app, d);
+        changed = color_near(img_px(&img, 340, 109), 0x123456, 3);
+        free(img.px);
+    }
+    if (!changed) {
+        fail("the theme was not reloaded (border color did not change)");
+    }
+    img = capture_screen(app, d);
+    expect_px(&img, 340, 122, 0xabcdef, "titlebar color of the reloaded theme");
+    free(img.px);
+
+    win_destroy(d, &a);
+}
 #endif
 
 /* --------------------------------------------------------------- main */
@@ -964,8 +1332,9 @@ int main(int argc, char **argv)
 {
     const char *mode = argc > 1 ? argv[1] : "single";
     int multi = !strcmp(mode, "multi");
-    if (!multi && strcmp(mode, "single") != 0) {
-        fail("unknown mode (use single or multi)");
+    int deco = !strcmp(mode, "deco");
+    if (!multi && !deco && strcmp(mode, "single") != 0) {
+        fail("unknown mode (use single, multi or deco)");
     }
 
     struct app app = {0};
@@ -998,6 +1367,17 @@ int main(int argc, char **argv)
         return 0;
 #else
         fail("the multi scenario needs the virtual input protocols");
+#endif
+    }
+
+    if (deco) {
+#ifdef HAVE_VIRTUAL_INPUT
+        run_deco(&app, display);
+        wl_display_disconnect(display);
+        printf("client_test deco: OK\n");
+        return 0;
+#else
+        fail("the deco scenario needs the wlroots protocol files");
 #endif
     }
 

@@ -30,6 +30,13 @@ if get_option('compositor')
     command: [wayland_scanner, 'private-code', '@INPUT@', '@OUTPUT@'])
   xdg_output_xml = wayland_protos.get_variable('pkgdatadir') / 'unstable/xdg-output/xdg-output-unstable-v1.xml'
   client_sources = [xdg_shell_client_h, xdg_shell_c]
+  xdg_deco_xml = wayland_protos.get_variable('pkgdatadir') / 'unstable/xdg-decoration/xdg-decoration-unstable-v1.xml'
+  client_sources += custom_target('xdg-decoration-unstable-v1-client-protocol.h',
+    input: xdg_deco_xml, output: 'xdg-decoration-unstable-v1-client-protocol.h',
+    command: [wayland_scanner, 'client-header', '@INPUT@', '@OUTPUT@'])
+  client_sources += custom_target('xdg-decoration-unstable-v1-protocol.c',
+    input: xdg_deco_xml, output: 'xdg-decoration-unstable-v1-protocol.c',
+    command: [wayland_scanner, 'private-code', '@INPUT@', '@OUTPUT@'])
   client_sources += custom_target('xdg-output-unstable-v1-client-protocol.h',
     input: xdg_output_xml, output: 'xdg-output-unstable-v1-client-protocol.h',
     command: [wayland_scanner, 'client-header', '@INPUT@', '@OUTPUT@'])
@@ -49,7 +56,7 @@ if get_option('compositor')
   if fs.exists(vkbd_xml) and fs.exists(vptr_xml)
     # Paths are passed as plain strings: meson's sandbox rejects `input:` files that
     # live inside a nested subproject.
-    foreach name : ['virtual-keyboard-unstable-v1', 'wlr-virtual-pointer-unstable-v1']
+    foreach name : ['virtual-keyboard-unstable-v1', 'wlr-virtual-pointer-unstable-v1', 'wlr-screencopy-unstable-v1']
       xml = wlr_protocol_dir / name + '.xml'
       client_sources += custom_target(name + '-client-protocol.h',
         output: name + '-client-protocol.h',
@@ -66,7 +73,7 @@ if get_option('compositor')
 
   client_test = executable('client_test', 'client_test.c', client_sources,
     dependencies: client_deps, c_args: client_args)
-  foreach mode : ['single', 'multi', 'nested']
+  foreach mode : ['single', 'multi', 'nested', 'deco']
     test('compositor-client-' + mode, find_program('bash'),
       args: [files('run_client_test.sh'), sfwc_exe, client_test, mode],
       timeout: 90)
