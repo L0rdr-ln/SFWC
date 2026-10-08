@@ -70,6 +70,9 @@ How it is used:
   cannot clip surfaces), so the bottom corners are rounded only as far as the border width
   allows; use a border of at least a third of the radius for fully round corners at the bottom.
 - The shadow is drawn at a quarter of the resolution and blurred, so it is cheap for large windows.
+- `name` and `[font] family` may only contain letters (any script), digits, spaces and
+  `_ - . , +`. They are pasted into commands and other tools' config files, so quotes, `;`, `$`
+  and similar characters are rejected (logged, and the previous value is kept).
 
 ## One theme for the whole desktop (templating)
 
@@ -117,6 +120,18 @@ The last row shows that the same `@section.key@` placeholders also work in `spaw
 is safe). Switch templates off with `[templates]` in the config (`enabled = false`, or
 `waybar = false` for one of them).
 
+### Safety: what installing a theme trusts
+
+- **A plain `.theme` file is data.** Colors and numbers are validated, and the free-text keys
+  are restricted as described above, and every placeholder expanded into a `spawn:` or
+  `[autostart]` command is put in single quotes for the shell (so don't add quotes of your
+  own around it). Its values cannot run commands.
+- **A theme that brings its own `templates/` directory is code.** Those templates become the
+  config files of other programs, and some of those formats can run commands (mako's
+  `on-button-*=exec ...`, for example). Installing such a theme means trusting its author as
+  much as running a script from them. Read the templates before using a theme from someone
+  you don't know, or disable the ones you don't need with `[templates]`.
+
 Why templates and not C code in the compositor:
 
 - The compositor stays small and does not need to know any tool's file format.
@@ -130,19 +145,3 @@ are versioned together with the theme package.
 
 Config parsing rule: comments are full-line only (`#` or `;` at line start). Inline comments
 are not supported, so `#rrggbb` values need no escaping.
-
-## Security: only install themes you trust
-
-A `.theme` file is plain data, and SFWC checks it: colors and numbers are parsed, and the two
-free-text values (`name` and `[font] family`) may only contain letters, digits, spaces and
-`- _ . , +`. Placeholders that end up in `spawn:` / `[autostart]` commands are additionally
-put in single quotes, so a value cannot run anything.
-
-**Templates are different.** A theme can ship its own templates (`<theme dir>/<name>/templates`),
-and a template becomes a config file of another program: a `mako.conf` can contain
-`on-notify=exec ...`, a `swaylock.conf` or `foot.ini` can point at other files, and so on. So a
-theme that comes with templates can make those programs run commands. Treat such a theme like a
-program: read its templates (`*.in` files) before you install it, and take them only from
-people you trust. `[templates] enabled = false` (or `<name> = false` for a single template)
-switches the rendering off, and a theme without a `templates` directory only changes colors,
-sizes and a font name.

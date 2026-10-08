@@ -175,6 +175,29 @@ static void test_errors(void)
     theme_finish(&ref);
 }
 
+/* name and font family end up in shell commands: only plain text is accepted */
+static void test_unsafe_text(void)
+{
+    const char *text = "name = x; rm -rf ~\n"                     /* 1 rejected */
+                       "[font]\n"                                 /* 2 */
+                       "family = sans$(touch /tmp/pwned)\n"       /* 3 rejected */
+                       "family = Noto Sans CJK JP\n"              /* 4 ok */
+                       "family = M+ 1p, DejaVu Sans_Mono-2.37\n"  /* 5 ok */
+                       "family = \"sans\"\n"                      /* 6 rejected */
+                       "family = Ünïcödé Sans\n";                 /* 7 ok (UTF-8) */
+    struct theme t;
+    struct log l = {0};
+    theme_init_default(&t);
+    CHECK(theme_load_string(&t, text, collect, &l));
+    CHECK(has_msg(&l, INI_ERROR, 1, "name"));
+    CHECK(has_msg(&l, INI_ERROR, 3, "family"));
+    CHECK(has_msg(&l, INI_ERROR, 6, "family"));
+    CHECK(l.n == 3);
+    CHECK(!strcmp(t.name, "default"));              /* rejected value kept the old one */
+    CHECK(!strcmp(t.font_family, "Ünïcödé Sans")); /* last valid value wins */
+    theme_finish(&t);
+}
+
 static void test_find(void)
 {
     char dir[] = "/tmp/sfwc-theme-test-XXXXXX";
@@ -207,6 +230,7 @@ int main(void)
     test_shipped_default_matches_builtin();
     test_shipped_light();
     test_errors();
+    test_unsafe_text();
     test_find();
     if (failures) {
         fprintf(stderr, "%d check(s) failed\n", failures);

@@ -122,22 +122,33 @@ static void set_int(struct tloader *l, const char *key, const char *v, int min, 
     *out = (int)n;
 }
 
-/* Theme names and font families end up in generated config files and (via placeholders) in
- * commands, so a theme from somewhere else must not smuggle shell syntax or newlines in:
- * letters, digits, space and - _ . , + only (bytes >= 0x80 allow UTF-8 font names). */
-static bool plain_text_ok(const char *v)
+/*
+ * Free-text values (name, font family) are expanded into shell commands and into the
+ * templates of other tools, so a shared theme must not be able to smuggle in quotes, `;`,
+ * `$` and the like. Letters, digits, space and `_ - . , +` cover real font names; bytes
+ * >= 0x80 are allowed so UTF-8 names work.
+ */
+static bool text_is_safe(const char *s)
 {
-    size_t n = strlen(v);
-    if (n == 0 || n > 64) {
+    if (!*s) {
         return false;
     }
-    for (const unsigned char *p = (const unsigned char *)v; *p; p++) {
-        if (!(isalnum(*p) || *p >= 0x80 || *p == ' ' || *p == '-' || *p == '_' || *p == '.' ||
-              *p == ',' || *p == '+')) {
+    for (const unsigned char *p = (const unsigned char *)s; *p; p++) {
+        if (!isalnum(*p) && *p < 0x80 && !strchr(" _-.,+", *p)) {
             return false;
         }
     }
     return true;
+}
+
+static void set_text(struct tloader *l, const char *key, const char *v, char **out)
+{
+    if (!text_is_safe(v)) {
+        report(l, INI_ERROR, "%s: '%s' may only contain letters, digits, spaces and _-.,+", key, v);
+        return;
+    }
+    free(*out);
+    *out = xstrdup(v);
 }
 
 static int theme_cb(void *user, const char *section, const char *name, const char *value, int line)
@@ -154,12 +165,7 @@ static int theme_cb(void *user, const char *section, const char *name, const cha
                        THEME_FORMAT);
             }
         } else if (!strcmp(name, "name")) {
-            if (plain_text_ok(value)) {
-                free(t->name);
-                t->name = xstrdup(value);
-            } else {
-                report(l, INI_ERROR, "name: use up to 64 letters, digits, spaces and - _ . , +");
-            }
+            set_text(l, name, value, &t->name);
         } else {
             report(l, INI_WARNING, "unknown key '%s'", name);
         }
@@ -221,12 +227,7 @@ static int theme_cb(void *user, const char *section, const char *name, const cha
         }
     } else if (!strcmp(section, "font")) {
         if (!strcmp(name, "family")) {
-            if (plain_text_ok(value)) {
-                free(t->font_family);
-                t->font_family = xstrdup(value);
-            } else {
-                report(l, INI_ERROR, "family: use up to 64 letters, digits, spaces and - _ . , +");
-            }
+            set_text(l, name, value, &t->font_family);
         } else if (!strcmp(name, "size")) {
             set_int(l, name, value, 4, 100, &t->font_size);
         } else {

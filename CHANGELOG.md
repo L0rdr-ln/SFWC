@@ -5,11 +5,6 @@ Versions follow the roadmap milestones while the project is pre-1.0:
 
 ## Unreleased – M3 "Configuration" and M1–M3 completion
 
-### Security
-- Theme `name` and `[font] family` are restricted to plain text, and theme placeholders in
-  `spawn:`/`[autostart]` commands are single-quoted for the shell (a downloaded theme could
-  otherwise inject commands). The docs now say that themes with templates must be trusted.
-
 ### Added
 - Session integration (M7): `sfwc.desktop` for display managers, man pages, Ctrl+Alt+F1..F12
   VT switching, `XDG_CURRENT_DESKTOP=SFWC`, D-Bus activation environment, install check in CI.
@@ -48,6 +43,16 @@ Versions follow the roadmap milestones while the project is pre-1.0:
 ### Changed
 - Keybinds match the exact modifier set and the unshifted key (`Shift+m` instead of `M`).
 - Keybind actions apply to the window that has keyboard focus (was: the front window).
+
+### Security
+- Theme `name` and `[font] family` only accept letters, digits, spaces and `_-.,+`. They are
+  expanded into `spawn:`/`[autostart]` shell commands, so a shared theme could otherwise run
+  commands. THEMES.md now explains that themes shipping their own templates must be trusted.
+- Theme placeholders in `spawn:`/`[autostart]` commands are also single-quoted for the shell
+  (this also keeps `#rrggbb` from being read as a shell comment).
+
+### Fixed
+- `sfwc-theme-apply` no longer leaks memory when it runs out of memory reading a file.
 
 ## v0.2.0 – 2026-10-08 – "Usable floating WM" (alpha)
 
