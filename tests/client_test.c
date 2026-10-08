@@ -636,7 +636,7 @@ static void alt_drag(struct app *app, struct wl_display *d, uint32_t button, dou
     wl_display_roundtrip(d);
 }
 
-static void setup_virtual_devices(struct app *app, struct wl_display *d)
+static void setup_virtual_devices(struct app *app, struct wl_display *d, int wait_for_focus)
 {
     if (!app->vptr_mgr || !app->vkbd_mgr) {
         fail("virtual input protocols missing (run with SFWC_ENABLE_VIRTUAL_INPUT=1)");
@@ -649,7 +649,9 @@ static void setup_virtual_devices(struct app *app, struct wl_display *d)
     if (!app->keyboard || !app->pointer) {
         fail("seat did not announce keyboard + pointer after virtual devices appeared");
     }
-    wait_for(d, &app->kb_enter, 3000, "keyboard focus (wl_keyboard.enter) for a window");
+    if (wait_for_focus) {
+        wait_for(d, &app->kb_enter, 3000, "keyboard focus (wl_keyboard.enter) for a window");
+    }
 }
 
 /* Returns the current config file contents (small) in a malloc'ed string. */
@@ -688,7 +690,7 @@ static void run_input_tests(struct app *app, struct wl_display *d)
 {
     app->ext_w = app->out_w;
     app->ext_h = app->out_h;
-    setup_virtual_devices(app, d);
+    setup_virtual_devices(app, d, 1);
 
     /* [keyboard] repeat_rate/repeat_delay from the config reach the client */
     if (app->kb_rate != 33 || app->kb_delay != 250) {
@@ -875,10 +877,13 @@ static void run_multi(struct app *app, struct wl_display *d)
     app->ext_w = 1280;
     app->ext_h = 720 + 300;
 
-    /* window A opens on the first output (pointer starts at 0,0) */
+    /* Windows open on the output under the pointer. Where the pointer starts depends on
+     * which output appeared first, so put it on the first output explicitly. */
     struct win a, b;
+    setup_virtual_devices(app, d, 0);
+    vptr_move(app, d, 100, 100);
     win_open(app, d, &a, "sfwc-multi-A", 0xff3050c0);
-    setup_virtual_devices(app, d);
+    wait_for(d, &app->kb_enter, 3000, "keyboard focus for window A");
     if (app->kb_rate != 40 || app->kb_delay != 300) {
         fail("repeat_info does not match the [keyboard] config (40/300)");
     }
