@@ -57,7 +57,7 @@ if get_option('compositor')
 
   client_test = executable('client_test', 'client_test.c', client_sources,
     dependencies: client_deps, c_args: client_args)
-  foreach mode : ['single', 'multi']
+  foreach mode : ['single', 'multi', 'nested']
     test('compositor-client-' + mode, find_program('bash'),
       args: [files('run_client_test.sh'), sfwc_exe, client_test, mode],
       timeout: 90)

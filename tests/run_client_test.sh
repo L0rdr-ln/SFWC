@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
 # Starts sfwc on the headless backend, runs the test client against it and checks the
 # compositor's log and side effects.
-# Usage: run_client_test.sh <sfwc> <client_test> [single|multi]
+# Usage: run_client_test.sh <sfwc> <client_test> [single|multi|nested]
 #   single: one output, input, snapping, live config reload, autostart, terminal
 #   multi:  two outputs (different size/scale/position), follow-mouse, output actions,
 #           reload-config key (config file watching is switched off)
+#   nested: the single scenario, but sfwc runs with the wayland backend as a window of a
+#           second (headless) sfwc, like `./sfwc` started inside another Wayland session
 set -u
 SFWC="$1"; CLIENT="$2"; MODE="${3:-single}"
 
@@ -15,8 +17,9 @@ export ASAN_OPTIONS=detect_leaks=0:detect_odr_violation=0
 LOG="$TMP/sfwc.log"
 export SFWC_CONFIG="$TMP/sfwc.conf"
 
+CLIENT_MODE="$MODE"
 case "$MODE" in
-single)
+single|nested)
     # One deliberately invalid line (4) which must be reported with its line number and fall
     # back to the default, a keyboard repeat setting, plus autostart with expansions.
     cat >"$SFWC_CONFIG" <<CONF
@@ -59,13 +62,37 @@ CONF
 *)
     echo "unknown mode $MODE"; exit 2 ;;
 esac
+[ "$MODE" = nested ] && CLIENT_MODE=single
+
+PID=""
+OUTER_PID=""
+cleanup() { kill -9 $PID $OUTER_PID 2>/dev/null; rm -rf "$TMP"; }
+trap cleanup EXIT
+fail() {
+    echo "FAIL ($MODE): $1"
+    echo "--- sfwc log ---"; cat "$LOG"
+    [ -n "$OUTER_PID" ] && { echo "--- outer sfwc log ---"; cat "$TMP/outer.log"; }
+    exit 1
+}
+
+if [ "$MODE" = nested ]; then
+    # Outer compositor: headless, default config, no virtual input.
+    SFWC_CONFIG="$TMP/outer.conf" SFWC_ENABLE_VIRTUAL_INPUT=0 "$SFWC" >"$TMP/outer.log" 2>&1 &
+    OUTER_PID=$!
+    OUTER_SOCKET=""
+    for _ in $(seq 1 50); do
+        OUTER_SOCKET="$(sed -n 's/.*WAYLAND_DISPLAY=\(.*\)$/\1/p' "$TMP/outer.log" | head -n1)"
+        [ -n "$OUTER_SOCKET" ] && break
+        kill -0 "$OUTER_PID" 2>/dev/null || { PID=$OUTER_PID; LOG="$TMP/outer.log"; fail "outer sfwc exited during startup"; }
+        sleep 0.1
+    done
+    [ -n "$OUTER_SOCKET" ] || { PID=$OUTER_PID; LOG="$TMP/outer.log"; fail "outer sfwc did not start"; }
+    # The compositor under test uses the wayland backend and shows up as a window of the outer one.
+    export WLR_BACKENDS=wayland WAYLAND_DISPLAY="$OUTER_SOCKET"
+fi
 
 "$SFWC" >"$LOG" 2>&1 &
 PID=$!
-cleanup() { kill -9 "$PID" 2>/dev/null; rm -rf "$TMP"; }
-trap cleanup EXIT
-
-fail() { echo "FAIL ($MODE): $1"; echo "--- sfwc log ---"; cat "$LOG"; exit 1; }
 
 # wait for the compositor to announce its socket
 SOCKET=""
@@ -78,18 +105,24 @@ done
 [ -n "$SOCKET" ] || fail "sfwc did not start within 5s"
 
 export WAYLAND_DISPLAY="$SOCKET"
-timeout 40 "$CLIENT" "$MODE" || fail "client test failed"
+timeout 40 "$CLIENT" "$CLIENT_MODE" || fail "client test failed"
 kill -0 "$PID" 2>/dev/null || fail "sfwc died while serving the client"
 
 kill -INT "$PID"
 wait "$PID"; STATUS=$?
 [ "$STATUS" -eq 0 ] || fail "sfwc exited with status $STATUS after SIGINT"
+if [ -n "$OUTER_PID" ]; then
+    kill -INT "$OUTER_PID"
+    wait "$OUTER_PID"; OUTER_STATUS=$?
+    [ "$OUTER_STATUS" -eq 0 ] || fail "outer sfwc exited with status $OUTER_STATUS after SIGINT"
+    grep -q "window mapped" "$TMP/outer.log" || fail "the nested compositor never appeared as a window of the outer one"
+fi
 
 grep -q "output .* added" "$LOG" || fail "no output was created"
 grep -q "window unmapped" "$LOG" || fail "window was never unmapped"
 
 case "$MODE" in
-single)
+single|nested)
     grep -q "window mapped.*sfwc-test-window" "$LOG" || fail "window was never mapped"
     grep -q "sfwc.conf:4: snap_distance" "$LOG" || fail "invalid config line was not reported with its line number"
     [ "$(grep -c 'config loaded' "$LOG")" -ge 2 ] || fail "config was not loaded at startup and again on live reload"
