@@ -1,9 +1,25 @@
-# SFWC – Simple Floating Wayland Compositor
+<p align="center">
+  <img src="docs/logo.svg" alt="sfwc" width="520">
+</p>
 
-[![build](https://github.com/L0rdr-ln/Simple-Floating-Wayland-Compositor/actions/workflows/build.yml/badge.svg)](https://github.com/L0rdr-ln/Simple-Floating-Wayland-Compositor/actions/workflows/build.yml)
-[![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-![C11](https://img.shields.io/badge/language-C11-lightgrey.svg)
-![wlroots 0.18](https://img.shields.io/badge/wlroots-0.18-5b8def.svg)
+<p align="center"><b>A simple floating Wayland compositor</b> – themes, animations, workspaces and one config file, on wlroots.</p>
+
+<p align="center">
+  <a href="https://github.com/L0rdr-ln/Simple-Floating-Wayland-Compositor/actions/workflows/build.yml"><img src="https://github.com/L0rdr-ln/Simple-Floating-Wayland-Compositor/actions/workflows/build.yml/badge.svg" alt="build"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="license: MIT"></a>
+  <img src="https://img.shields.io/badge/language-C11-lightgrey.svg" alt="C11">
+  <img src="https://img.shields.io/badge/wlroots-0.18-5b8def.svg" alt="wlroots 0.18">
+</p>
+
+<p align="center">
+  <a href="#build-and-run">Getting started</a> |
+  <a href="docs/CONFIGURATION.md">Configuration</a> |
+  <a href="#themes">Themes</a> |
+  <a href="docs/THEMES.md#one-theme-for-the-whole-desktop-templating">One theme for the desktop</a> |
+  <a href="docs/ROADMAP.md">Roadmap</a>
+</p>
+
+---
 
 A small, easy-to-configure **floating (stacking) Wayland compositor** on top of
 [wlroots](https://gitlab.freedesktop.org/wlroots/wlroots): overlapping windows with title bars,

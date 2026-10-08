@@ -1,0 +1,65 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="640" viewBox="0 0 1280 640">
+  <title>sfwc – simple floating wayland compositor</title>
+  <defs>
+    <radialGradient id="glow" cx="0.5" cy="0.38" r="0.7">
+      <stop offset="0" stop-color="#1d2142"/>
+      <stop offset="1" stop-color="#0d1117"/>
+    </radialGradient>
+  </defs>
+  <rect width="1280" height="640" fill="url(#glow)"/>
+  <g transform="translate(160 105) scale(1.25)">
+  
+  <defs>
+    <linearGradient id="ink" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#4f8cff"/>
+      <stop offset="0.55" stop-color="#8a6bf2"/>
+      <stop offset="1" stop-color="#e0689c"/>
+    </linearGradient>
+    <!-- the wordmark uses fixed coordinates: a bounding-box gradient is not painted on the
+         horizontal bar of the f (zero height) -->
+    <linearGradient id="inkw" gradientUnits="userSpaceOnUse" x1="0" y1="10" x2="500" y2="190">
+      <stop offset="0" stop-color="#4f8cff"/>
+      <stop offset="0.55" stop-color="#8a6bf2"/>
+      <stop offset="1" stop-color="#e0689c"/>
+    </linearGradient>
+    <linearGradient id="ink2" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0" stop-color="#2fc4b2"/>
+      <stop offset="1" stop-color="#4f8cff"/>
+    </linearGradient>
+    <filter id="soft" x="-20%" y="-20%" width="140%" height="150%">
+      <feDropShadow dx="0" dy="6" stdDeviation="7" flood-color="#000" flood-opacity="0.35"/>
+    </filter>
+  </defs>
+
+  <!-- icon: two floating windows, the front one overlapping the back one -->
+  <g transform="translate(14 22)">
+    <g filter="url(#soft)">
+      <rect x="0" y="22" width="142" height="108" rx="20" fill="#232640" stroke="url(#ink2)" stroke-width="7"/>
+      <path d="M3.5 56 H138.5" stroke="#4f8cff" stroke-width="4" opacity="0.45"/>
+      <circle cx="24" cy="39" r="7" fill="#f6c177"/><circle cx="46" cy="39" r="7" fill="#9ccfd8"/><circle cx="68" cy="39" r="7" fill="#eb6f92"/>
+    </g>
+    <g filter="url(#soft)">
+      <rect x="52" y="76" width="150" height="116" rx="22" fill="#1c1e33" stroke="url(#ink)" stroke-width="8"/>
+      <path d="M56 114 H198" stroke="#8a6bf2" stroke-width="4" opacity="0.45"/>
+      <circle cx="78" cy="96" r="7.5" fill="#f6c177"/><circle cx="101" cy="96" r="7.5" fill="#9ccfd8"/><circle cx="124" cy="96" r="7.5" fill="#eb6f92"/>
+      <rect x="76" y="136" width="82" height="9" rx="4.5" fill="#cdd6f4" opacity="0.35"/>
+      <rect x="76" y="156" width="104" height="9" rx="4.5" fill="#cdd6f4" opacity="0.22"/>
+    </g>
+  </g>
+
+  <!-- wordmark: s f w c, drawn as round-capped strokes -->
+  <g fill="none" stroke="url(#inkw)" stroke-width="30" stroke-linecap="round" stroke-linejoin="round" transform="translate(262 28)">
+    <!-- s -->
+    <path d="M88 52 C70 30 22 36 24 70 C26 96 88 90 88 122 C88 154 30 156 14 128"/>
+    <!-- f -->
+    <path d="M152 156 V62 C152 20 186 6 216 22"/>
+    <path d="M122 84 H192"/>
+    <!-- w -->
+    <path d="M232 44 L254 156 L292 80 L330 156 L352 44"/>
+    <!-- c -->
+    <path d="M458 62 C432 34 388 52 388 100 C388 148 434 164 460 136"/>
+  </g>
+</g>
+  <text x="640" y="470" text-anchor="middle" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="44" font-weight="600" fill="#e6e9f5">A simple floating Wayland compositor</text>
+  <text x="640" y="530" text-anchor="middle" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="30" fill="#9aa3c7">themes · animations · workspaces · one config file · wlroots</text>
+</svg>
