@@ -78,9 +78,10 @@ if get_option('compositor')
     command: [wayland_scanner, 'server-header', '@INPUT@', '@OUTPUT@'])
   # wlr_layer_shell_v1.h includes the server header of the wlr-layer-shell protocol.
   layer_shell_h = custom_target('wlr-layer-shell-unstable-v1-protocol.h',
-    input: 'subprojects/wlroots/protocol/wlr-layer-shell-unstable-v1.xml',
     output: 'wlr-layer-shell-unstable-v1-protocol.h',
-    command: [wayland_scanner, 'server-header', '@INPUT@', '@OUTPUT@'])
+    command: [wayland_scanner, 'server-header',
+              meson.project_source_root() / 'subprojects/wlroots/protocol/wlr-layer-shell-unstable-v1.xml',
+              '@OUTPUT@'])
 
   sfwc_exe = executable('sfwc',
     'src/main.c', xdg_shell_h, layer_shell_h,
