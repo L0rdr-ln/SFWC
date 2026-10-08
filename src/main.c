@@ -162,6 +162,8 @@ struct toplevel {
     struct wl_listener deco_destroy;
     struct wl_listener set_title;
     bool ssd; /* we draw this window's frame */
+    struct wlr_scene_tree *last_frame; /* hidden copy of what the window showed, for fade-out */
+    uint32_t last_frame_ms;
     struct wlr_scene_tree *frame_tree;
     struct wlr_scene_buffer *chrome;
     struct wlr_scene_buffer *shadow;
@@ -393,29 +395,62 @@ static void snapshot_iter(struct wlr_scene_buffer *sb, int sx, int sy, void *dat
     ctx->count++;
 }
 
-/* The window is going away: keep a picture of it on screen and fade that out. */
+/* Keep a hidden, reference-only copy of the window's current buffers (no pixels are copied).
+ * By the time a window unmaps, the scene has already dropped them, so the copy is made while
+ * the window is still showing. Refreshed on commits, at most every 50 ms. */
+static void snapshot_refresh(struct toplevel *t)
+{
+    struct server *server = t->server;
+    if (!animations_enabled(server) || !strcmp(server->config.anim_close, "none") ||
+        server->config.anim_duration_ms == 0) {
+        if (t->last_frame) {
+            wlr_scene_node_destroy(&t->last_frame->node);
+            t->last_frame = NULL;
+        }
+        return;
+    }
+    uint32_t now = now_msec();
+    if (t->last_frame && now - t->last_frame_ms < 50) {
+        return;
+    }
+    if (!t->xdg_toplevel->base->surface->mapped) {
+        return; /* keep the last good copy */
+    }
+    struct wlr_scene_tree *copy = wlr_scene_tree_create(&server->scene->tree);
+    wlr_scene_node_set_enabled(&copy->node, false);
+    struct snapshot_ctx ctx = {copy, 0};
+    wlr_scene_node_for_each_buffer(&t->scene_tree->node, snapshot_iter, &ctx);
+    if (ctx.count == 0) {
+        wlr_scene_node_destroy(&copy->node);
+        return;
+    }
+    if (t->last_frame) {
+        wlr_scene_node_destroy(&t->last_frame->node);
+    }
+    t->last_frame = copy;
+    t->last_frame_ms = now;
+}
+
+/* The window is going away: fade out the copy of what it showed. */
 static void animate_close(struct toplevel *t)
 {
     struct server *server = t->server;
+    struct wlr_scene_tree *snap = t->last_frame;
+    t->last_frame = NULL;
     const char *style = server->config.anim_close;
-    if (!animations_enabled(server) || !strcmp(style, "none") ||
-        server->config.anim_duration_ms == 0) {
+    if (!snap) {
         return;
     }
-    struct wlr_scene_tree *snap = wlr_scene_tree_create(&server->scene->tree);
-    int lx, ly;
-    wlr_scene_node_coords(&t->scene_tree->node, &lx, &ly);
-    wlr_scene_node_set_position(&snap->node, lx, ly);
-    struct snapshot_ctx ctx = {snap, 0};
-    /* the xdg tree was just disabled by the unmap; iterate it as if it still showed */
-    bool was_enabled = t->scene_tree->node.enabled;
-    wlr_scene_node_set_enabled(&t->scene_tree->node, true);
-    wlr_scene_node_for_each_buffer(&t->scene_tree->node, snapshot_iter, &ctx);
-    wlr_scene_node_set_enabled(&t->scene_tree->node, was_enabled);
-    if (ctx.count == 0) {
+    if (!animations_enabled(server) || !strcmp(style, "none") ||
+        server->config.anim_duration_ms == 0) {
         wlr_scene_node_destroy(&snap->node);
         return;
     }
+    int lx, ly;
+    wlr_scene_node_coords(&t->scene_tree->node, &lx, &ly);
+    wlr_scene_node_set_position(&snap->node, lx, ly);
+    wlr_scene_node_set_enabled(&snap->node, true);
+    wlr_scene_node_raise_to_top(&snap->node);
     struct animation *a = animation_start(server, ANIM_CLOSE, NULL, snap, lx, ly, lx,
                                           ly + slide_distance(style), 1, 0);
     a->destroy_tree = true;
@@ -1686,6 +1721,7 @@ static void toplevel_map(struct wl_listener *listener, void *data)
     focus_toplevel(toplevel);
     frame_refresh(toplevel);
     animate_open(toplevel);
+    snapshot_refresh(toplevel);
 }
 
 static void toplevel_unmap(struct wl_listener *listener, void *data)
@@ -1725,6 +1761,7 @@ static void toplevel_commit(struct wl_listener *listener, void *data)
         }
     }
     frame_refresh(toplevel); /* cheap when size, focus and title did not change */
+    snapshot_refresh(toplevel);
 }
 
 static void toplevel_destroy(struct wl_listener *listener, void *data)
@@ -1745,6 +1782,9 @@ static void toplevel_destroy(struct wl_listener *listener, void *data)
         wl_list_remove(&toplevel->deco_destroy.link);
     }
     animations_cancel(toplevel, false);
+    if (toplevel->last_frame) {
+        wlr_scene_node_destroy(&toplevel->last_frame->node);
+    }
     free(toplevel->frame_title);
     free(toplevel);
 }
