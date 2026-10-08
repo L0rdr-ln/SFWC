@@ -34,7 +34,8 @@ CONF
     ;;
 multi)
     # HEADLESS-2 is added by SFWC_TEST_OUTPUTS: 1024x600, scale 2 (logical 512x300), placed
-    # below the first output. The layout name does not exist: the keymap must fall back.
+    # below the first output. Both outputs are positioned explicitly because the order in
+    # which they appear is not defined. The layout name does not exist: the keymap must fall back.
     export SFWC_TEST_OUTPUTS=1024x600 SFWC_NO_CONFIG_WATCH=1
     cat >"$SFWC_CONFIG" <<'CONF'
 [general]
@@ -43,6 +44,8 @@ focus = follow-mouse
 layout = nosuchlayout
 repeat_rate = 40
 repeat_delay = 300
+[output:HEADLESS-1]
+position = 0,0
 [output:HEADLESS-2]
 scale = 2
 position = 0,720
