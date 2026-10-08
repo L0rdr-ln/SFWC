@@ -20,7 +20,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Dpkg::Lock::Timeout=120 update
-          sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Dpkg::Lock::Timeout=120 install -y meson ninja-build pkg-config gcc git cmake \
+          sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Dpkg::Lock::Timeout=120 install -y meson ninja-build pkg-config gcc git cmake bison flex \
             libwayland-dev wayland-protocols libxkbcommon-dev libcairo2-dev libpango1.0-dev libfontconfig-dev fonts-dejavu-core libpixman-1-dev \
             libdrm-dev libinput-dev libudev-dev libseat-dev libegl-dev libgles-dev \
             libgbm-dev libvulkan-dev glslang-tools hwdata libdisplay-info-dev \

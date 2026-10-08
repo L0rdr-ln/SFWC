@@ -20,7 +20,14 @@ inih_dep = declare_dependency(
   link_with: inih,
   include_directories: include_directories('third_party/inih'))
 
-xkbcommon = dependency('xkbcommon')
+# The compositor build needs a newer xkbcommon (wlroots 0.20 asks for >= 1.8); the parsers only
+# need the keysym names, any version will do.
+xkbcommon = dependency('xkbcommon',
+  version: get_option('compositor') ? '>=1.8.0' : '>=1.4.0',
+  fallback: ['xkbcommon', 'xkbcommon_dep'],
+  default_options: ['enable-docs=false', 'enable-tools=false', 'enable-x11=false',
+                    'enable-wayland=false', 'enable-xkbregistry=false',
+                    'enable-bash-completion=false'])
 
 # Parsers, independent of wlroots so they can be unit-tested everywhere.
 inifile_lib = static_library('sfwc_inifile', 'src/inifile.c', dependencies: inih_dep)
