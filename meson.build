@@ -27,9 +27,19 @@ if get_option('compositor')
   wayland_server = dependency('wayland-server')
   xkbcommon = dependency('xkbcommon')
 
+  # wlroots headers include xdg-shell-protocol.h, which we generate ourselves.
+  wayland_scanner = find_program('wayland-scanner', native: true)
+  wayland_protos = dependency('wayland-protocols', version: '>=1.32', native: true)
+  xdg_shell_xml = wayland_protos.get_variable('pkgdatadir') / 'stable/xdg-shell/xdg-shell.xml'
+  xdg_shell_h = custom_target('xdg-shell-protocol.h',
+    input: xdg_shell_xml,
+    output: 'xdg-shell-protocol.h',
+    command: [wayland_scanner, 'server-header', '@INPUT@', '@OUTPUT@'])
+
   executable('sfwc',
-    'src/main.c',
+    'src/main.c', xdg_shell_h,
     dependencies: [wlroots, wayland_server, xkbcommon, inih_dep],
+    c_args: ['-Wno-unused-parameter'],
     install: true)
 
   install_data('config/sfwc.conf', install_dir: get_option('datadir') / 'sfwc')
