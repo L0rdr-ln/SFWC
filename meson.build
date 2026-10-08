@@ -83,8 +83,14 @@ if get_option('compositor')
               meson.project_source_root() / 'subprojects/wlroots/protocol/wlr-layer-shell-unstable-v1.xml',
               '@OUTPUT@'])
 
+  # wlr_session_lock_v1.h includes the server header of ext-session-lock.
+  session_lock_h = custom_target('ext-session-lock-v1-protocol.h',
+    input: wayland_protos.get_variable('pkgdatadir') / 'staging/ext-session-lock/ext-session-lock-v1.xml',
+    output: 'ext-session-lock-v1-protocol.h',
+    command: [wayland_scanner, 'server-header', '@INPUT@', '@OUTPUT@'])
+
   sfwc_exe = executable('sfwc',
-    'src/main.c', xdg_shell_h, layer_shell_h,
+    'src/main.c', xdg_shell_h, layer_shell_h, session_lock_h,
     dependencies: [wlroots, wayland_server, xkbcommon, libm, libdrm, config_dep, theme_dep, deco_dep, anim_dep],
     c_args: ['-Wno-unused-parameter'],
     install: true)

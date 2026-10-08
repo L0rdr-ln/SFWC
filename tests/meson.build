@@ -46,6 +46,13 @@ if get_option('compositor')
   client_sources += custom_target('xdg-output-unstable-v1-protocol.c',
     input: xdg_output_xml, output: 'xdg-output-unstable-v1-protocol.c',
     command: [wayland_scanner, 'private-code', '@INPUT@', '@OUTPUT@'])
+  session_lock_xml = wayland_protos.get_variable('pkgdatadir') / 'staging/ext-session-lock/ext-session-lock-v1.xml'
+  client_sources += custom_target('ext-session-lock-v1-client-protocol.h',
+    input: session_lock_xml, output: 'ext-session-lock-v1-client-protocol.h',
+    command: [wayland_scanner, 'client-header', '@INPUT@', '@OUTPUT@'])
+  client_sources += custom_target('ext-session-lock-v1-protocol.c',
+    input: session_lock_xml, output: 'ext-session-lock-v1-protocol.c',
+    command: [wayland_scanner, 'private-code', '@INPUT@', '@OUTPUT@'])
   client_deps = [wayland_client]
   client_args = ['-Wno-unused-parameter']
 
@@ -77,7 +84,7 @@ if get_option('compositor')
 
   client_test = executable('client_test', 'client_test.c', client_sources,
     dependencies: client_deps, c_args: client_args)
-  foreach mode : ['single', 'multi', 'nested', 'deco', 'anim', 'layers', 'workspaces']
+  foreach mode : ['single', 'multi', 'nested', 'deco', 'anim', 'layers', 'workspaces', 'lock']
     test('compositor-client-' + mode, find_program('bash'),
       args: [files('run_client_test.sh'), sfwc_exe, client_test, mode],
       timeout: 120)

@@ -56,6 +56,7 @@
 #include <wlr/types/wlr_primary_selection.h>
 #include <wlr/types/wlr_primary_selection_v1.h>
 #include <wlr/types/wlr_screencopy_v1.h>
+#include <wlr/types/wlr_session_lock_v1.h>
 #include <wlr/types/wlr_xcursor_manager.h>
 #include <wlr/types/wlr_xdg_decoration_v1.h>
 #include <wlr/types/wlr_xdg_output_v1.h>
@@ -132,6 +133,18 @@ struct server {
     uint32_t resize_edges;
     int cascade; /* offset of the next new window */
     int ws_current; /* 0-based index of the visible workspace */
+
+    /* ext-session-lock: while `locked`, only the lock client's surfaces are visible and
+     * receive input; a lock client that dies leaves the session locked. */
+    struct wlr_session_lock_manager_v1 *lock_mgr;
+    struct wl_listener new_lock;
+    struct wlr_session_lock_v1 *cur_lock;
+    struct wl_listener lock_new_surface;
+    struct wl_listener lock_unlock;
+    struct wl_listener lock_destroy;
+    struct wlr_scene_tree *lock_tree; /* above everything, disabled while unlocked */
+    struct wlr_scene_rect *lock_bg;   /* black, covers all outputs */
+    bool locked;
 
     struct config config;
     struct theme theme;
@@ -239,6 +252,7 @@ struct popup {
 static void arrange_layers(struct output *output);
 static void fth_sync(struct toplevel *t);
 static void workspace_refresh(struct server *server);
+static void lock_update_bg(struct server *server);
 static void reset_cursor_mode(struct server *server);
 static void process_cursor_motion(struct server *server, uint32_t time);
 static struct toplevel *toplevel_from_xdg(struct wlr_xdg_toplevel *xdg);
@@ -833,7 +847,7 @@ static void place_new_toplevel(struct toplevel *t)
 
 static void focus_toplevel_ex(struct toplevel *toplevel, bool raise)
 {
-    if (toplevel == NULL) {
+    if (toplevel == NULL || toplevel->server->locked) {
         return;
     }
     struct server *server = toplevel->server;
@@ -987,6 +1001,107 @@ static void workspace_clamp(struct server *server)
         server->ws_current = last;
     }
     workspace_refresh(server);
+}
+
+/* ----------------------------------------------------------- session lock */
+
+/* Cover the whole layout (all outputs) with black so nothing shows while locked. */
+static void lock_update_bg(struct server *server)
+{
+    if (!server->lock_bg) {
+        return;
+    }
+    struct wlr_box box;
+    wlr_output_layout_get_box(server->output_layout, NULL, &box);
+    wlr_scene_node_set_position(&server->lock_bg->node, box.x, box.y);
+    wlr_scene_rect_set_size(server->lock_bg, box.width, box.height);
+}
+
+static void lock_new_surface(struct wl_listener *listener, void *data)
+{
+    struct server *server = wl_container_of(listener, server, lock_new_surface);
+    struct wlr_session_lock_surface_v1 *surf = data;
+    struct wlr_box box = {0};
+    if (surf->output) {
+        wlr_output_layout_get_box(server->output_layout, surf->output, &box);
+    }
+    struct wlr_scene_tree *tree = wlr_scene_subsurface_tree_create(server->lock_tree, surf->surface);
+    wlr_scene_node_set_position(&tree->node, box.x, box.y);
+    wlr_session_lock_surface_v1_configure(surf, box.width, box.height);
+    wlr_log(WLR_INFO, "lock surface for %s", surf->output ? surf->output->name : "(no output)");
+
+    struct wlr_seat *seat = server->seat;
+    struct wlr_keyboard *keyboard = wlr_seat_get_keyboard(seat);
+    struct wlr_surface *old = seat->keyboard_state.focused_surface;
+    struct wlr_session_lock_surface_v1 *old_lock = old ? wlr_session_lock_surface_v1_try_from_wlr_surface(old) : NULL;
+    if (keyboard && !old_lock) {
+        wlr_seat_keyboard_notify_enter(seat, surf->surface, keyboard->keycodes,
+                                       keyboard->num_keycodes, &keyboard->modifiers);
+    }
+}
+
+static void lock_release_listeners(struct server *server)
+{
+    wl_list_remove(&server->lock_new_surface.link);
+    wl_list_remove(&server->lock_unlock.link);
+    wl_list_remove(&server->lock_destroy.link);
+    server->cur_lock = NULL;
+}
+
+static void lock_handle_unlock(struct wl_listener *listener, void *data)
+{
+    struct server *server = wl_container_of(listener, server, lock_unlock);
+    wlr_log(WLR_INFO, "session unlocked");
+    server->locked = false;
+    wlr_scene_node_set_enabled(&server->lock_tree->node, false);
+    struct toplevel *next = top_visible(server);
+    if (next) {
+        focus_toplevel(next);
+    } else {
+        wlr_seat_keyboard_notify_clear_focus(server->seat);
+    }
+}
+
+/* The lock client went away. Without an unlock request the session stays locked. */
+static void lock_handle_destroy(struct wl_listener *listener, void *data)
+{
+    struct server *server = wl_container_of(listener, server, lock_destroy);
+    if (server->locked) {
+        wlr_log(WLR_INFO, "lock client went away without unlocking: the session stays locked");
+    }
+    lock_release_listeners(server);
+}
+
+static void server_new_lock(struct wl_listener *listener, void *data)
+{
+    struct server *server = wl_container_of(listener, server, new_lock);
+    struct wlr_session_lock_v1 *lock = data;
+    if (server->cur_lock) { /* somebody holds the lock already */
+        wlr_session_lock_v1_destroy(lock);
+        return;
+    }
+    wlr_log(WLR_INFO, "session locked");
+    server->locked = true;
+    server->cur_lock = lock;
+    reset_cursor_mode(server);
+    struct wlr_surface *focus = server->seat->keyboard_state.focused_surface;
+    struct wlr_xdg_toplevel *fx = focus ? wlr_xdg_toplevel_try_from_wlr_surface(focus) : NULL;
+    if (fx) {
+        wlr_xdg_toplevel_set_activated(fx, false);
+    }
+    wlr_seat_keyboard_notify_clear_focus(server->seat);
+    wlr_seat_pointer_clear_focus(server->seat);
+    wlr_scene_node_set_enabled(&server->lock_tree->node, true);
+    lock_update_bg(server);
+
+    server->lock_new_surface.notify = lock_new_surface;
+    wl_signal_add(&lock->events.new_surface, &server->lock_new_surface);
+    server->lock_unlock.notify = lock_handle_unlock;
+    wl_signal_add(&lock->events.unlock, &server->lock_unlock);
+    server->lock_destroy.notify = lock_handle_destroy;
+    wl_signal_add(&lock->events.destroy, &server->lock_destroy);
+    wlr_session_lock_v1_send_locked(lock);
+    process_cursor_motion(server, now_msec());
 }
 
 static void fth_request_activate(struct wl_listener *listener, void *data)
@@ -1351,9 +1466,11 @@ static void keyboard_handle_key(struct wl_listener *listener, void *data)
         uint32_t modifiers = wlr_keyboard_get_modifiers(keyboard->wlr_keyboard);
         const struct keybind *bind = config_find_keybind(
             &server->config, modifiers, base_keysym(keyboard->wlr_keyboard, keycode));
-        if (bind) {
+        if (bind && (!server->locked || bind->action == ACTION_QUIT)) {
             dispatch_action(server, bind->action, bind->arg);
             handled = true;
+        } else if (bind) {
+            handled = false; /* locked: the key goes to the lock client like any other */
         }
     }
     if (!handled) {
@@ -1932,6 +2049,7 @@ static void server_new_output(struct wl_listener *listener, void *data)
     wlr_scene_output_layout_add_output(server->scene_layout, l_output, scene_output);
     output->usable_area = (struct wlr_box){0};
     arrange_layers(output); /* also sets the usable area */
+    lock_update_bg(server);
     wlr_log(WLR_INFO, "output %s added", wlr_output->name);
 }
 
@@ -2230,7 +2348,7 @@ static void focus_layer_surface(struct server *server, struct wlr_layer_surface_
 {
     struct wlr_seat *seat = server->seat;
     struct wlr_keyboard *keyboard = wlr_seat_get_keyboard(seat);
-    if (!keyboard || seat->keyboard_state.focused_surface == layer->surface) {
+    if (!keyboard || server->locked || seat->keyboard_state.focused_surface == layer->surface) {
         return;
     }
     struct wlr_surface *prev = seat->keyboard_state.focused_surface;
@@ -2714,6 +2832,9 @@ int main(int argc, char *argv[])
     server.windows_tree = wlr_scene_tree_create(&server.scene->tree);
     server.layer_trees[ZWLR_LAYER_SHELL_V1_LAYER_TOP] = wlr_scene_tree_create(&server.scene->tree);
     server.layer_trees[ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY] = wlr_scene_tree_create(&server.scene->tree);
+    server.lock_tree = wlr_scene_tree_create(&server.scene->tree);
+    wlr_scene_node_set_enabled(&server.lock_tree->node, false);
+    server.lock_bg = wlr_scene_rect_create(server.lock_tree, 0, 0, (float[4]){0, 0, 0, 1});
     wl_list_init(&server.layer_surfaces);
     server.layer_shell = wlr_layer_shell_v1_create(server.display, 4);
     server.new_layer_surface.notify = server_new_layer_surface;
@@ -2772,6 +2893,9 @@ int main(int argc, char *argv[])
     server.new_idle_inhibitor.notify = server_new_idle_inhibitor;
     wl_signal_add(&server.idle_inhibit_mgr->events.new_inhibitor, &server.new_idle_inhibitor);
     server.foreign_toplevel_mgr = wlr_foreign_toplevel_manager_v1_create(server.display);
+    server.lock_mgr = wlr_session_lock_manager_v1_create(server.display);
+    server.new_lock.notify = server_new_lock;
+    wl_signal_add(&server.lock_mgr->events.new_lock, &server.new_lock);
 
     const char *vinput = getenv("SFWC_ENABLE_VIRTUAL_INPUT");
     if (vinput && strcmp(vinput, "1") == 0) {
@@ -2824,6 +2948,12 @@ int main(int argc, char *argv[])
     wl_list_remove(&server.request_set_selection.link);
     wl_list_remove(&server.request_set_primary_selection.link);
     wl_list_remove(&server.new_idle_inhibitor.link);
+    wl_list_remove(&server.new_lock.link);
+    if (server.cur_lock) {
+        wl_list_remove(&server.lock_new_surface.link);
+        wl_list_remove(&server.lock_unlock.link);
+        wl_list_remove(&server.lock_destroy.link);
+    }
     wl_list_remove(&server.new_output.link);
     wl_list_remove(&server.new_toplevel_decoration.link);
     wl_list_remove(&server.new_layer_surface.link);

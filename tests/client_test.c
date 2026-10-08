@@ -27,6 +27,7 @@
 #ifdef HAVE_VIRTUAL_INPUT
 #include <xkbcommon/xkbcommon.h>
 #include "virtual-keyboard-unstable-v1-client-protocol.h"
+#include "ext-session-lock-v1-client-protocol.h"
 #include "wlr-layer-shell-unstable-v1-client-protocol.h"
 #include "wlr-screencopy-unstable-v1-client-protocol.h"
 #include "wlr-virtual-pointer-unstable-v1-client-protocol.h"
@@ -105,12 +106,14 @@ struct app {
     struct wl_surface *kb_surface; /* surface that currently has keyboard focus */
     int kb_rate, kb_delay;        /* last repeat_info */
     int key_presses[256];         /* key press events received, by key code */
+    struct wl_surface *ptr_surface; /* surface under the pointer */
     int ptr_enter, ptr_motion, ptr_button_press, ptr_button_release;
     double ptr_sx, ptr_sy;        /* last pointer position, surface-local */
 #ifdef HAVE_VIRTUAL_INPUT
     struct zwlr_virtual_pointer_manager_v1 *vptr_mgr;
     struct zwlr_screencopy_manager_v1 *screencopy_mgr;
     struct zwlr_layer_shell_v1 *layer_shell;
+    struct ext_session_lock_manager_v1 *lock_mgr;
     struct zwp_virtual_keyboard_manager_v1 *vkbd_mgr;
     struct zwlr_virtual_pointer_v1 *vptr;
     struct zwp_virtual_keyboard_v1 *vkbd;
@@ -263,10 +266,14 @@ static void ptr_enter(void *data, struct wl_pointer *p, uint32_t serial, struct 
 {
     struct app *app = data;
     app->ptr_enter++;
+    app->ptr_surface = s;
     app->ptr_sx = wl_fixed_to_double(x);
     app->ptr_sy = wl_fixed_to_double(y);
 }
-static void ptr_leave(void *d, struct wl_pointer *p, uint32_t serial, struct wl_surface *s) {}
+static void ptr_leave(void *d, struct wl_pointer *p, uint32_t serial, struct wl_surface *s)
+{
+    ((struct app *)d)->ptr_surface = NULL;
+}
 static void ptr_motion(void *data, struct wl_pointer *p, uint32_t time, wl_fixed_t x, wl_fixed_t y)
 {
     struct app *app = data;
@@ -395,6 +402,8 @@ static void registry_global(void *data, struct wl_registry *reg, uint32_t name,
     } else if (strcmp(interface, zxdg_output_manager_v1_interface.name) == 0) {
         app->xdg_out_mgr = wl_registry_bind(reg, name, &zxdg_output_manager_v1_interface, 2);
 #ifdef HAVE_VIRTUAL_INPUT
+    } else if (strcmp(interface, ext_session_lock_manager_v1_interface.name) == 0) {
+        app->lock_mgr = wl_registry_bind(reg, name, &ext_session_lock_manager_v1_interface, 1);
     } else if (strcmp(interface, zwlr_layer_shell_v1_interface.name) == 0) {
         app->layer_shell = wl_registry_bind(reg, name, &zwlr_layer_shell_v1_interface, 4);
     } else if (strcmp(interface, zwlr_screencopy_manager_v1_interface.name) == 0) {
@@ -1424,6 +1433,10 @@ static void run_anim(struct app *app, struct wl_display *d)
     free(img.px);
 }
 
+#define C_WALLPAPER 0x102030
+#define C_BAR 0xaa5500
+#define C_OVERLAY 0x00aa55
+
 /* -------------------------------------------------- scenario: workspaces */
 
 #define C_OTHER 0xc03050
@@ -1503,6 +1516,125 @@ static void run_workspaces(struct app *app, struct wl_display *d)
     win_destroy(d, &a);
 }
 
+/* ----------------------------------------------------- scenario: session lock */
+
+struct lock_state {
+    int locked, finished;
+};
+static void lk_locked(void *data, struct ext_session_lock_v1 *l)
+{
+    ((struct lock_state *)data)->locked = 1;
+}
+static void lk_finished(void *data, struct ext_session_lock_v1 *l)
+{
+    ((struct lock_state *)data)->finished = 1;
+}
+static const struct ext_session_lock_v1_listener lock_listener = {
+    .locked = lk_locked,
+    .finished = lk_finished,
+};
+
+struct lock_surf {
+    struct app *app;
+    struct wl_surface *surface;
+    struct wl_buffer *buf;
+    int configured;
+};
+static void lks_configure(void *data, struct ext_session_lock_surface_v1 *s, uint32_t serial,
+                          uint32_t w, uint32_t h)
+{
+    struct lock_surf *ls = data;
+    ext_session_lock_surface_v1_ack_configure(s, serial);
+    ls->buf = make_buffer(ls->app->shm, w, h, 0xff000000u | C_OVERLAY);
+    wl_surface_attach(ls->surface, ls->buf, 0, 0);
+    wl_surface_commit(ls->surface);
+    ls->configured = 1;
+}
+static const struct ext_session_lock_surface_v1_listener lock_surface_listener = {
+    .configure = lks_configure,
+};
+
+static void run_lock(struct app *app, struct wl_display *d)
+{
+    if (!app->lock_mgr) {
+        fail("compositor does not offer ext-session-lock");
+    }
+    app->ext_w = app->out_w;
+    app->ext_h = app->out_h;
+    setup_virtual_devices(app, d, 0);
+
+    struct win a;
+    win_open_ex(app, d, &a, "secret", 0xff000000u | C_CLIENT, 0, 1);
+    expect_focus(app, d, a.surface, "window did not get focus");
+    vtap(app, d, MOD_ALT, KEY_F);
+    win_expect(&a, d, 1, 0, 1264, 704, "window maximized");
+    wl_display_roundtrip(d);
+    struct image img = capture_screen(app, d);
+    expect_px(&img, 600, 300, C_CLIENT, "the window is visible before locking");
+    free(img.px);
+
+    /* lock: the window disappears at once and loses the keyboard, even without a lock surface */
+    struct lock_state st = {0};
+    struct ext_session_lock_v1 *lock = ext_session_lock_manager_v1_lock(app->lock_mgr);
+    ext_session_lock_v1_add_listener(lock, &lock_listener, &st);
+    wait_for(d, &st.locked, 3000, "the locked event");
+    expect_focus(app, d, NULL, "the window kept the keyboard while locked");
+    img = capture_screen(app, d);
+    expect_px(&img, 600, 300, 0x000000, "the screen is black while locked");
+    free(img.px);
+
+    /* keybinds are off while locked */
+    vtap(app, d, MOD_ALT, KEY_Q);
+    wl_display_roundtrip(d);
+    if (a.closed) {
+        fail("a keybind (close) worked while the session was locked");
+    }
+
+    /* a second locker is refused */
+    struct lock_state st2 = {0};
+    struct ext_session_lock_v1 *lock2 = ext_session_lock_manager_v1_lock(app->lock_mgr);
+    ext_session_lock_v1_add_listener(lock2, &lock_listener, &st2);
+    wait_for(d, &st2.finished, 3000, "the second lock to be refused");
+    if (st2.locked) {
+        fail("a second lock client was accepted");
+    }
+    ext_session_lock_v1_destroy(lock2);
+
+    /* the lock surface covers the output and takes keyboard and pointer */
+    struct lock_surf ls = {.app = app};
+    ls.surface = wl_compositor_create_surface(app->compositor);
+    struct ext_session_lock_surface_v1 *lsurf =
+        ext_session_lock_v1_get_lock_surface(lock, ls.surface, app->output);
+    ext_session_lock_surface_v1_add_listener(lsurf, &lock_surface_listener, &ls);
+    wait_for(d, &ls.configured, 3000, "lock surface configure");
+    expect_focus(app, d, ls.surface, "the lock surface did not get the keyboard");
+    img = capture_screen(app, d);
+    expect_px(&img, 600, 300, C_OVERLAY, "the lock surface is shown");
+    expect_px(&img, 5, 5, C_OVERLAY, "the lock surface covers the corner");
+    free(img.px);
+    app->ptr_enter = 0;
+    vptr_move(app, d, 640, 360);
+    wl_display_roundtrip(d);
+    if (app->ptr_surface != ls.surface) {
+        fail("the pointer is not on the lock surface");
+    }
+
+    /* unlock: everything comes back */
+    ext_session_lock_v1_unlock_and_destroy(lock);
+    wl_display_roundtrip(d);
+    img = capture_screen(app, d);
+    expect_px(&img, 600, 300, C_CLIENT, "the window is back after unlocking");
+    free(img.px);
+    expect_focus(app, d, a.surface, "the window did not get the keyboard back after unlocking");
+    vtap(app, d, MOD_ALT, KEY_Q);
+    wl_display_roundtrip(d);
+    wait_for(d, &a.closed, 3000, "keybinds work again after unlocking");
+
+    ext_session_lock_surface_v1_destroy(lsurf);
+    wl_surface_destroy(ls.surface);
+    win_destroy(d, &a);
+}
+
 /* ------------------------------------------------------- scenario: layers */
 
 struct lay {
@@ -1570,9 +1702,6 @@ static void lay_close(struct wl_display *d, struct lay *l)
     wl_display_roundtrip(d);
 }
 
-#define C_WALLPAPER 0x102030
-#define C_BAR 0xaa5500
-#define C_OVERLAY 0x00aa55
 
 static void run_layers(struct app *app, struct wl_display *d)
 {
@@ -1667,8 +1796,9 @@ int main(int argc, char **argv)
     int anim = !strcmp(mode, "anim");
     int layers = !strcmp(mode, "layers");
     int workspaces = !strcmp(mode, "workspaces");
-    if (!multi && !deco && !anim && !layers && !workspaces && strcmp(mode, "single") != 0) {
-        fail("unknown mode (use single, multi, deco, anim, layers or workspaces)");
+    int lock = !strcmp(mode, "lock");
+    if (!multi && !deco && !anim && !layers && !workspaces && !lock && strcmp(mode, "single") != 0) {
+        fail("unknown mode (use single, multi, deco, anim, layers, workspaces or lock)");
     }
 
     struct app app = {0};
@@ -1725,6 +1855,16 @@ int main(int argc, char **argv)
 #endif
     }
 
+    if (lock) {
+#ifdef HAVE_VIRTUAL_INPUT
+        run_lock(&app, display);
+        wl_display_disconnect(display);
+        printf("client_test lock: OK\n");
+        return 0;
+#else
+        fail("the lock scenario needs the wlroots protocol files");
+#endif
+    }
     if (workspaces) {
 #ifdef HAVE_VIRTUAL_INPUT
         run_workspaces(&app, display);
