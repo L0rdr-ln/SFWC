@@ -1562,7 +1562,8 @@ static void run_layers(struct app *app, struct wl_display *d)
     win_expect(&a, d, 1, 0, 1264, 704, "maximized window grows when the panel goes away");
     wl_display_roundtrip(d);
     img = capture_screen(app, d);
-    expect_px(&img, 600, 20, C_CLIENT, "window now reaches the top");
+    expect_px(&img, 600, 100, C_CLIENT, "window content is still shown");
+    expect_not_px(&img, 600, 20, C_BAR, "the panel is gone");
     free(img.px);
 
     win_destroy(d, &a);
