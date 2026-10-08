@@ -274,11 +274,12 @@ struct keyboard {
 /* ---------------------------------------------------------------- spawn */
 
 /* Run a shell command detached: double fork so we never leave zombies. */
-/* $terminal, $theme, $runtime ... and @colors.background:hex@ style theme placeholders. */
+/* $terminal, $theme, $runtime ... and @colors.background:hex@ style theme placeholders (the
+ * latter are single-quoted for the shell, see TEMPLATE_SHELL). */
 static char *expand_command(struct server *server, const char *in)
 {
     char *a = config_expand(&server->config, in, getenv("XDG_RUNTIME_DIR"));
-    char *b = template_render(&server->theme, a, false, NULL, 0);
+    char *b = template_render(&server->theme, a, TEMPLATE_SHELL, NULL, 0);
     if (!b) {
         return a;
     }

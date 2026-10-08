@@ -5,6 +5,11 @@ Versions follow the roadmap milestones while the project is pre-1.0:
 
 ## Unreleased – M3 "Configuration" and M1–M3 completion
 
+### Security
+- Theme `name` and `[font] family` are restricted to plain text, and theme placeholders in
+  `spawn:`/`[autostart]` commands are single-quoted for the shell (a downloaded theme could
+  otherwise inject commands). The docs now say that themes with templates must be trusted.
+
 ### Added
 - Session integration (M7): `sfwc.desktop` for display managers, man pages, Ctrl+Alt+F1..F12
   VT switching, `XDG_CURRENT_DESKTOP=SFWC`, D-Bus activation environment, install check in CI.

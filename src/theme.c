@@ -122,6 +122,24 @@ static void set_int(struct tloader *l, const char *key, const char *v, int min, 
     *out = (int)n;
 }
 
+/* Theme names and font families end up in generated config files and (via placeholders) in
+ * commands, so a theme from somewhere else must not smuggle shell syntax or newlines in:
+ * letters, digits, space and - _ . , + only (bytes >= 0x80 allow UTF-8 font names). */
+static bool plain_text_ok(const char *v)
+{
+    size_t n = strlen(v);
+    if (n == 0 || n > 64) {
+        return false;
+    }
+    for (const unsigned char *p = (const unsigned char *)v; *p; p++) {
+        if (!(isalnum(*p) || *p >= 0x80 || *p == ' ' || *p == '-' || *p == '_' || *p == '.' ||
+              *p == ',' || *p == '+')) {
+            return false;
+        }
+    }
+    return true;
+}
+
 static int theme_cb(void *user, const char *section, const char *name, const char *value, int line)
 {
     struct tloader *l = user;
@@ -136,8 +154,12 @@ static int theme_cb(void *user, const char *section, const char *name, const cha
                        THEME_FORMAT);
             }
         } else if (!strcmp(name, "name")) {
-            free(t->name);
-            t->name = xstrdup(value);
+            if (plain_text_ok(value)) {
+                free(t->name);
+                t->name = xstrdup(value);
+            } else {
+                report(l, INI_ERROR, "name: use up to 64 letters, digits, spaces and - _ . , +");
+            }
         } else {
             report(l, INI_WARNING, "unknown key '%s'", name);
         }
@@ -199,8 +221,12 @@ static int theme_cb(void *user, const char *section, const char *name, const cha
         }
     } else if (!strcmp(section, "font")) {
         if (!strcmp(name, "family")) {
-            free(t->font_family);
-            t->font_family = xstrdup(value);
+            if (plain_text_ok(value)) {
+                free(t->font_family);
+                t->font_family = xstrdup(value);
+            } else {
+                report(l, INI_ERROR, "family: use up to 64 letters, digits, spaces and - _ . , +");
+            }
         } else if (!strcmp(name, "size")) {
             set_int(l, name, value, 4, 100, &t->font_size);
         } else {

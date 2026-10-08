@@ -21,7 +21,8 @@ window decorations and animations.
   defined in small theme files you can swap or share. Themes ship as a
   separate optional package ([`themes/`](themes/)); the compositor runs fine
   with its built-in minimal look. With the package installed, one theme can
-  also style your bar and launcher through templates.
+  also style your bar and launcher through templates. (Third-party themes that ship templates can make those tools run
+  commands, so read them first: [security note](docs/THEMES.md#security-only-install-themes-you-trust).)
 - **Animations** – fade/slide when windows open, close and move, with adjustable duration
   and easing, or turned off entirely (config or `SFWC_NO_ANIMATIONS=1`).
 - **Small and readable** – written in C against wlroots; easy to hack on.

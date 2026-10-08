@@ -130,3 +130,19 @@ are versioned together with the theme package.
 
 Config parsing rule: comments are full-line only (`#` or `;` at line start). Inline comments
 are not supported, so `#rrggbb` values need no escaping.
+
+## Security: only install themes you trust
+
+A `.theme` file is plain data, and SFWC checks it: colors and numbers are parsed, and the two
+free-text values (`name` and `[font] family`) may only contain letters, digits, spaces and
+`- _ . , +`. Placeholders that end up in `spawn:` / `[autostart]` commands are additionally
+put in single quotes, so a value cannot run anything.
+
+**Templates are different.** A theme can ship its own templates (`<theme dir>/<name>/templates`),
+and a template becomes a config file of another program: a `mako.conf` can contain
+`on-notify=exec ...`, a `swaylock.conf` or `foot.ini` can point at other files, and so on. So a
+theme that comes with templates can make those programs run commands. Treat such a theme like a
+program: read its templates (`*.in` files) before you install it, and take them only from
+people you trust. `[templates] enabled = false` (or `<name> = false` for a single template)
+switches the rendering off, and a theme without a `templates` directory only changes colors,
+sizes and a font name.

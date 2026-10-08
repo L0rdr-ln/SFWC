@@ -124,8 +124,10 @@ static bool key_char(char c)
     return isalnum((unsigned char)c) || c == '_' || c == '.';
 }
 
-char *template_render(const struct theme *t, const char *in, bool strict, char *err, size_t err_n)
+char *template_render(const struct theme *t, const char *in, enum template_mode mode, char *err,
+                      size_t err_n)
 {
+    bool strict = mode == TEMPLATE_STRICT;
     struct buf b = {0};
     put(&b, "", 0);
     int line = 1;
@@ -170,7 +172,19 @@ char *template_render(const struct theme *t, const char *in, bool strict, char *
         }
         char val[128];
         if (end && theme_value(t, key, mod, val, sizeof val)) {
-            put(&b, val, strlen(val));
+            if (mode == TEMPLATE_SHELL) {
+                put(&b, "'", 1);
+                for (const char *v = val; *v; v++) {
+                    if (*v == '\'') {
+                        put(&b, "'\\''", 4);
+                    } else {
+                        put(&b, v, 1);
+                    }
+                }
+                put(&b, "'", 1);
+            } else {
+                put(&b, val, strlen(val));
+            }
             p = end + 1;
             continue;
         }

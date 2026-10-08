@@ -19,13 +19,20 @@
  */
 bool theme_value(const struct theme *t, const char *key, const char *modifier, char *out, size_t n);
 
-/*
- * Render `in`. Strict mode (template files): "@@" is a literal '@', an unknown placeholder
- * or an unterminated '@' is an error (NULL, message in `err` with the line number).
- * Lenient mode (commands in the config): only well-formed placeholders that name a theme key
- * are replaced, everything else (e-mail addresses, "ssh user@host") stays as it is.
- * The caller frees the result.
- */
-char *template_render(const struct theme *t, const char *in, bool strict, char *err, size_t err_n);
+enum template_mode {
+    /* template files: "@@" is a literal '@'; an unknown placeholder or an unterminated '@' is
+     * an error (NULL, message in `err` with the line number) */
+    TEMPLATE_STRICT,
+    /* only well-formed placeholders that name a theme key are replaced, everything else
+     * (e-mail addresses, "ssh user@host") stays as it is */
+    TEMPLATE_LENIENT,
+    /* lenient, and every substituted value is put in single quotes for /bin/sh, so a value
+     * can neither split into several words, start a comment ("#1e1e2e") nor run anything */
+    TEMPLATE_SHELL,
+};
+
+/* Render `in`. The caller frees the result. */
+char *template_render(const struct theme *t, const char *in, enum template_mode mode, char *err,
+                      size_t err_n);
 
 #endif

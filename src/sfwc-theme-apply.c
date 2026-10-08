@@ -14,6 +14,7 @@
  */
 #include <dirent.h>
 #include <errno.h>
+#include <stdarg.h>
 #include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -27,6 +28,7 @@
 
 #define MAX_LIST 32
 
+/* Whole file as a NUL-terminated string, or NULL (unreadable, or out of memory). */
 static char *read_file(const char *path)
 {
     FILE *f = fopen(path, "rb");
@@ -35,12 +37,21 @@ static char *read_file(const char *path)
     }
     size_t cap = 4096, len = 0;
     char *buf = malloc(cap);
-    size_t n;
-    while (buf && (n = fread(buf + len, 1, cap - len - 1, f)) > 0) {
+    while (buf) {
+        size_t n = fread(buf + len, 1, cap - len - 1, f);
         len += n;
+        if (n == 0) {
+            break;
+        }
         if (len + 1 >= cap) {
+            char *bigger = realloc(buf, cap * 2);
+            if (!bigger) {
+                free(buf); /* realloc failed: the old block is still ours */
+                buf = NULL;
+                break;
+            }
+            buf = bigger;
             cap *= 2;
-            buf = realloc(buf, cap);
         }
     }
     fclose(f);
@@ -106,6 +117,27 @@ static bool listed(char *const *list, int n, const char *s)
     return false;
 }
 
+/* Template directories in priority order. A path that does not fit is dropped. */
+struct dir_list {
+    char path[MAX_LIST][1024];
+    int n;
+};
+
+static void dir_add(struct dir_list *dl, const char *fmt, ...) __attribute__((format(printf, 2, 3)));
+static void dir_add(struct dir_list *dl, const char *fmt, ...)
+{
+    if (dl->n >= MAX_LIST) {
+        return;
+    }
+    va_list ap;
+    va_start(ap, fmt);
+    int len = vsnprintf(dl->path[dl->n], sizeof dl->path[0], fmt, ap);
+    va_end(ap);
+    if (len > 0 && (size_t)len < sizeof dl->path[0]) {
+        dl->n++;
+    }
+}
+
 static void theme_log(int level, int line, const char *text, void *data)
 {
     (void)level;
@@ -145,77 +177,57 @@ int main(int argc, char **argv)
         }
     }
 
-    /* the theme: built-in default, then the theme file on top */
+    /* the theme: the built-in default, with the theme file (also default.theme) on top */
     struct theme theme;
     theme_init_default(&theme);
-    char *theme_path = NULL;
-    if (strcmp(theme_name, "default") != 0 || (theme_path = theme_find("default", config_dir))) {
-        if (!theme_path) {
-            theme_path = theme_find(theme_name, config_dir);
-        }
-        if (!theme_path && strcmp(theme_name, "default") != 0) {
-            fprintf(stderr, "sfwc-theme-apply: theme '%s' not found\n", theme_name);
-            return 1;
-        }
-        if (theme_path && !theme_load_file(&theme, theme_path, theme_log, NULL)) {
-            fprintf(stderr, "sfwc-theme-apply: cannot read %s\n", theme_path);
-            return 1;
-        }
+    char *theme_path = theme_find(theme_name, config_dir);
+    if (!theme_path && strcmp(theme_name, "default") != 0) {
+        fprintf(stderr, "sfwc-theme-apply: theme '%s' not found\n", theme_name);
+        return 1;
+    }
+    if (theme_path && !theme_load_file(&theme, theme_path, theme_log, NULL)) {
+        fprintf(stderr, "sfwc-theme-apply: cannot read %s\n", theme_path);
+        return 1;
     }
 
     /* template directories, most specific first */
-    static char dirs_buf[MAX_LIST + 8][1024];
-    const char *dirs[MAX_LIST + 8];
-    int n_dirs = 0;
+    struct dir_list dl = {0};
     for (int i = 0; i < n_tdirs; i++) {
-        dirs[n_dirs++] = tdirs[i];
+        dir_add(&dl, "%s", tdirs[i]);
     }
     const char *env_dirs = getenv("SFWC_TEMPLATES"); /* colon separated, for development */
     if (n_tdirs == 0 && env_dirs && *env_dirs) {
-        static char env_buf[2048];
-        snprintf(env_buf, sizeof env_buf, "%s", env_dirs);
-        for (char *save = NULL, *d = strtok_r(env_buf, ":", &save); d && n_dirs < MAX_LIST;
-             d = strtok_r(NULL, ":", &save)) {
-            dirs[n_dirs++] = d;
+        char *copy = strdup(env_dirs), *save = NULL;
+        for (char *d = copy ? strtok_r(copy, ":", &save) : NULL; d; d = strtok_r(NULL, ":", &save)) {
+            dir_add(&dl, "%s", d);
         }
+        free(copy);
     } else if (n_tdirs == 0) {
         const char *home = getenv("HOME"), *xch = getenv("XDG_CONFIG_HOME"), *xdh = getenv("XDG_DATA_HOME");
         if (theme_path) { /* <theme dir>/<name>/templates: a theme can bring its own */
-            char tmp[1024];
-            snprintf(tmp, sizeof tmp, "%s", theme_path);
-            char *slash = strrchr(tmp, '/');
+            char *theme_dir = strdup(theme_path);
+            char *slash = theme_dir ? strrchr(theme_dir, '/') : NULL;
             if (slash) {
                 *slash = 0;
-                snprintf(dirs_buf[n_dirs], 1024, "%s/%s/templates", tmp, theme_name);
-                dirs[n_dirs] = dirs_buf[n_dirs];
-                n_dirs++;
+                dir_add(&dl, "%s/%s/templates", theme_dir, theme_name);
             }
+            free(theme_dir);
         }
         if (config_dir) {
-            snprintf(dirs_buf[n_dirs], 1024, "%s/templates", config_dir);
-            dirs[n_dirs] = dirs_buf[n_dirs];
-            n_dirs++;
+            dir_add(&dl, "%s/templates", config_dir);
         }
         if (xch && *xch) {
-            snprintf(dirs_buf[n_dirs], 1024, "%s/sfwc/templates", xch);
-            dirs[n_dirs] = dirs_buf[n_dirs];
-            n_dirs++;
+            dir_add(&dl, "%s/sfwc/templates", xch);
         } else if (home) {
-            snprintf(dirs_buf[n_dirs], 1024, "%s/.config/sfwc/templates", home);
-            dirs[n_dirs] = dirs_buf[n_dirs];
-            n_dirs++;
+            dir_add(&dl, "%s/.config/sfwc/templates", home);
         }
         if (xdh && *xdh) {
-            snprintf(dirs_buf[n_dirs], 1024, "%s/sfwc/templates", xdh);
-            dirs[n_dirs] = dirs_buf[n_dirs];
-            n_dirs++;
+            dir_add(&dl, "%s/sfwc/templates", xdh);
         } else if (home) {
-            snprintf(dirs_buf[n_dirs], 1024, "%s/.local/share/sfwc/templates", home);
-            dirs[n_dirs] = dirs_buf[n_dirs];
-            n_dirs++;
+            dir_add(&dl, "%s/.local/share/sfwc/templates", home);
         }
-        dirs[n_dirs++] = "/usr/local/share/sfwc/templates";
-        dirs[n_dirs++] = "/usr/share/sfwc/templates";
+        dir_add(&dl, "/usr/local/share/sfwc/templates");
+        dir_add(&dl, "/usr/share/sfwc/templates");
     }
 
     /* output directory */
@@ -237,8 +249,8 @@ int main(int argc, char **argv)
     int status = 0;
     char *done[256];
     int n_done = 0;
-    for (int d = 0; d < n_dirs; d++) {
-        DIR *dir = opendir(dirs[d]);
+    for (int d = 0; d < dl.n; d++) {
+        DIR *dir = opendir(dl.path[d]);
         if (!dir) {
             continue;
         }
@@ -264,7 +276,7 @@ int main(int argc, char **argv)
                 continue;
             }
             char path[1536];
-            snprintf(path, sizeof path, "%s/%s", dirs[d], e->d_name);
+            snprintf(path, sizeof path, "%s/%s", dl.path[d], e->d_name);
             char *src = read_file(path);
             if (!src) {
                 fprintf(stderr, "sfwc-theme-apply: cannot read %s\n", path);
@@ -272,7 +284,7 @@ int main(int argc, char **argv)
                 continue;
             }
             char err[200];
-            char *text = template_render(&theme, src, true, err, sizeof err);
+            char *text = template_render(&theme, src, TEMPLATE_STRICT, err, sizeof err);
             free(src);
             if (!text) {
                 fprintf(stderr, "sfwc-theme-apply: %s: %s\n", path, err);
