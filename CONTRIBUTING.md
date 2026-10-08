@@ -14,3 +14,13 @@
 
 Code style: C11, 4-space indent, Linux-style braces, no global state where a
 struct passed around will do. Prefer wlroots' scene graph API for rendering.
+
+## Testing input
+
+`tests/client_test.c` drives sfwc with the wlroots virtual keyboard/pointer
+protocols. Those protocols let any client inject input, so sfwc only exposes
+them when started with `SFWC_ENABLE_VIRTUAL_INPUT=1` (the test script sets it).
+The protocol XML files are taken from the wlroots subproject; with a system
+wlroots the input part of the test is skipped (meson prints a warning).
+A test that has never failed proves little: when adding a check, break the
+expectation once and confirm it goes red.

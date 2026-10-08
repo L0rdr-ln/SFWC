@@ -18,11 +18,10 @@ are roughly in build order; check them off as they land.
 - [x] Keyboard + pointer via seat, click-to-focus, raise on focus
 - [x] Spawn a terminal with Alt+Return (double fork, no zombies)
 - [x] Bonus: Alt+drag move/resize, Alt+Tab, Alt+q, Alt+Esc
-- [ ] **Still to verify by hand**: input-driven behavior (focus, Alt+drag
-      move/resize, Alt+keybinds) is not covered by CI because headless has no
-      input devices. Run nested (`./build/sfwc` inside another Wayland session,
-      then `WAYLAND_DISPLAY=... foot`) and try them.
-- [ ] Extend the client test with synthetic input (wlroots virtual pointer/keyboard)
+- [x] Input-driven behavior is covered in CI via virtual input (see M2).
+- [ ] Still worth a manual look on real hardware / nested (`./build/sfwc` inside
+      another Wayland session, then `WAYLAND_DISPLAY=... foot`): real devices,
+      cursor theme, Alt+Return terminal.
 - [x] Automated client test in CI (`tests/client_test.c`: toplevel + popup + frame
       callback against headless sfwc; checks the log and clean shutdown)
 
@@ -40,8 +39,9 @@ are roughly in build order; check them off as they land.
       under the window/cursor, but this is untested with more than one output;
       per-output focus and moving windows between outputs still to do
 - [ ] Snap to other windows (not only screen edges)
-- [ ] Verify by hand (no input in headless CI): Alt+drag snapping, Alt+keybinds
-- [ ] Extend the client test with synthetic input (virtual pointer/keyboard)
+- [x] Input is tested in CI with virtual keyboard/pointer: key passthrough, Alt+f / Alt+F11,
+      click passthrough, Alt+drag move, snapping, Alt+right-drag resize, Alt+m /
+      Alt+Shift+m with keyboard focus handover, Alt+q close (`tests/client_test.c`)
 
 ## M3 – Configuration
 - [ ] Config parser, defaults, error messages with line numbers
