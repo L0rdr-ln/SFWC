@@ -45,6 +45,20 @@ meson test -C build
 Running nested (easiest for development): start `sfwc` from a terminal inside
 an existing Wayland session and it opens in a window.
 
+## Current keybindings
+
+Hard-coded until the config milestone (modifier is Alt so it works when nested):
+
+| Keys | Action |
+|---|---|
+| Alt+Return | open terminal (`$SFWC_TERMINAL`, default `foot`) |
+| Alt+q | close focused window |
+| Alt+Tab | cycle windows |
+| Alt+f / Alt+F11 | toggle maximize / fullscreen |
+| Alt+m / Alt+Shift+m | minimize / restore last minimized |
+| Alt+drag (left / right button) | move / resize window |
+| Alt+Esc | quit |
+
 ## Configuration
 
 Copy the example config and edit it:
