@@ -39,8 +39,14 @@ static char *read_file(const char *path)
     while (buf && (n = fread(buf + len, 1, cap - len - 1, f)) > 0) {
         len += n;
         if (len + 1 >= cap) {
+            char *bigger = realloc(buf, cap * 2);
+            if (!bigger) {
+                free(buf);
+                buf = NULL;
+                break;
+            }
+            buf = bigger;
             cap *= 2;
-            buf = realloc(buf, cap);
         }
     }
     fclose(f);
@@ -148,19 +154,15 @@ int main(int argc, char **argv)
     /* the theme: built-in default, then the theme file on top */
     struct theme theme;
     theme_init_default(&theme);
-    char *theme_path = NULL;
-    if (strcmp(theme_name, "default") != 0 || (theme_path = theme_find("default", config_dir))) {
-        if (!theme_path) {
-            theme_path = theme_find(theme_name, config_dir);
-        }
-        if (!theme_path && strcmp(theme_name, "default") != 0) {
-            fprintf(stderr, "sfwc-theme-apply: theme '%s' not found\n", theme_name);
-            return 1;
-        }
-        if (theme_path && !theme_load_file(&theme, theme_path, theme_log, NULL)) {
-            fprintf(stderr, "sfwc-theme-apply: cannot read %s\n", theme_path);
-            return 1;
-        }
+    /* "default" may be missing (the built-in copy is used); any other theme must exist */
+    char *theme_path = theme_find(theme_name, config_dir);
+    if (!theme_path && strcmp(theme_name, "default") != 0) {
+        fprintf(stderr, "sfwc-theme-apply: theme '%s' not found\n", theme_name);
+        return 1;
+    }
+    if (theme_path && !theme_load_file(&theme, theme_path, theme_log, NULL)) {
+        fprintf(stderr, "sfwc-theme-apply: cannot read %s\n", theme_path);
+        return 1;
     }
 
     /* template directories, most specific first */

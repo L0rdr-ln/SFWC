@@ -70,6 +70,9 @@ How it is used:
   cannot clip surfaces), so the bottom corners are rounded only as far as the border width
   allows; use a border of at least a third of the radius for fully round corners at the bottom.
 - The shadow is drawn at a quarter of the resolution and blurred, so it is cheap for large windows.
+- `name` and `[font] family` may only contain letters (any script), digits, spaces and
+  `_ - . , +`. They are pasted into commands and other tools' config files, so quotes, `;`, `$`
+  and similar characters are rejected (logged, and the previous value is kept).
 
 ## One theme for the whole desktop (templating)
 
@@ -116,6 +119,17 @@ The last row shows that the same `@section.key@` placeholders also work in `spaw
 `[autostart]` commands (only placeholders that name a theme key are replaced, so `ssh me@host`
 is safe). Switch templates off with `[templates]` in the config (`enabled = false`, or
 `waybar = false` for one of them).
+
+### Safety: what installing a theme trusts
+
+- **A plain `.theme` file is data.** Colors and numbers are validated, and the free-text keys
+  are restricted as described above, so its values cannot run commands even when you use
+  them in `spawn:` or `[autostart]`.
+- **A theme that brings its own `templates/` directory is code.** Those templates become the
+  config files of other programs, and some of those formats can run commands (mako's
+  `on-button-*=exec ...`, for example). Installing such a theme means trusting its author as
+  much as running a script from them. Read the templates before using a theme from someone
+  you don't know, or disable the ones you don't need with `[templates]`.
 
 Why templates and not C code in the compositor:
 
