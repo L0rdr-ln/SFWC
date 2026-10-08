@@ -1,0 +1,8 @@
+# wlroots 0.20 needs xkbcommon >= 1.8; distros like Ubuntu 24.04 ship 1.6.
+[wrap-git]
+url = https://github.com/xkbcommon/libxkbcommon.git
+revision = xkbcommon-1.8.1
+depth = 1
+
+[provide]
+dependency_names = xkbcommon
