@@ -6,6 +6,12 @@ Versions follow the roadmap milestones while the project is pre-1.0:
 ## Unreleased – M3 "Configuration" and M1–M3 completion
 
 ### Added
+- `wlr-layer-shell`: panels, wallpapers and launchers (M5). Exclusive zones shrink the area used
+  for maximizing, placing and snapping windows; exclusive/on-demand keyboard focus; popups.
+- Primary selection, `wlr-data-control` (clipboard managers), `ext-idle-notify` and idle inhibit
+  (swayidle and friends), `wlr-foreign-toplevel-management` (taskbars can list, activate,
+  minimize, maximize and close windows).
+- End-to-end test `compositor-client-layers`; every scenario also checks the advertised globals.
 - Config file (`~/.config/sfwc/sfwc.conf` or `$SFWC_CONFIG`): gap, snapping (edges and other
   windows), focus mode, terminal, configurable keybinds and mouse binds (`$mod`, any xkb key,
   `spawn:<cmd>`), `[autostart]` commands. Errors are logged with line numbers and never stop
