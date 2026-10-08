@@ -73,11 +73,13 @@ are roughly in build order; check them off as they land.
   clipping client content to rounded corners; resize animations would need the client to cooperate
 
 ## M5 – Desktop integration
-- [ ] `wlr-layer-shell` (bars, wallpaper, launcher)
-- [ ] `ext-session-lock`, `ext-idle-notify`, idle inhibit
-- [ ] `wlr-foreign-toplevel-management` (taskbar), workspace protocol
+- [x] `wlr-layer-shell` (bars, wallpaper, launcher; exclusive zones, exclusive keyboard focus, popups)
+- [x] `ext-idle-notify`, idle inhibit
+- [ ] `ext-session-lock`
+- [x] `wlr-foreign-toplevel-management` (taskbar)
+- [ ] workspace protocol
 - [ ] Workspaces + workspace-switch animation
-- [ ] Screenshots / screen capture, clipboard and primary selection
+- [x] Screenshots / screen capture (screencopy), clipboard, primary selection, data-control
 
 ## M6 – Themes and templating  *(separate `sfwc-themes` package)*
 - [ ] Add `format = 1` to the theme format and check it on load
