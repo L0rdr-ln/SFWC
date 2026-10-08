@@ -44,6 +44,8 @@ static const struct {
     {"cycle-windows", ACTION_CYCLE},
     {"reload-config", ACTION_RELOAD},
     {"quit", ACTION_QUIT},
+    {"move-to-next-output", ACTION_MOVE_OUTPUT},
+    {"focus-next-output", ACTION_FOCUS_OUTPUT},
     {"move", ACTION_MOVE},
     {"resize", ACTION_RESIZE},
 };
@@ -121,6 +123,9 @@ void config_init_defaults(struct config *c)
     c->mod = CFG_MOD_ALT;
     c->focus = FOCUS_CLICK;
     c->snap_to_edges = true;
+    c->snap_to_windows = true;
+    c->repeat_rate = 25;
+    c->repeat_delay = 600;
     c->snap_distance = 12;
     c->gap = 8;
     c->anim_enabled = true;
@@ -161,6 +166,15 @@ void config_finish(struct config *c)
 {
     free(c->theme);
     free(c->terminal);
+    free(c->kb_rules);
+    free(c->kb_model);
+    free(c->kb_layout);
+    free(c->kb_variant);
+    free(c->kb_options);
+    for (size_t i = 0; i < c->n_outputs; i++) {
+        free(c->outputs[i].name);
+    }
+    free(c->outputs);
     clear_binds(c);
     clear_mbinds(c);
     clear_autostart(c);
@@ -443,6 +457,8 @@ static void handle_windows(struct loader *l, const char *key, const char *v)
     char tmp[24];
     if (!strcmp(key, "snap_to_edges")) {
         set_bool(l, key, v, &c->snap_to_edges);
+    } else if (!strcmp(key, "snap_to_windows")) {
+        set_bool(l, key, v, &c->snap_to_windows);
     } else if (!strcmp(key, "snap_distance")) {
         set_int(l, key, v, 0, 200, &c->snap_distance);
     } else if (!strcmp(key, "gap")) {
@@ -451,6 +467,77 @@ static void handle_windows(struct loader *l, const char *key, const char *v)
         set_choice(l, key, v, layout_values, tmp, sizeof tmp);
     } else {
         report(l, CONFIG_WARNING, "unknown key '%s' in [windows]", key);
+    }
+}
+
+static void set_string(char **dst, const char *v)
+{
+    free(*dst);
+    *dst = *v ? xstrdup(v) : NULL; /* empty value = xkb default */
+}
+
+static void handle_keyboard(struct loader *l, const char *key, const char *v)
+{
+    struct config *c = l->c;
+    if (!strcmp(key, "rules")) {
+        set_string(&c->kb_rules, v);
+    } else if (!strcmp(key, "model")) {
+        set_string(&c->kb_model, v);
+    } else if (!strcmp(key, "layout")) {
+        set_string(&c->kb_layout, v);
+    } else if (!strcmp(key, "variant")) {
+        set_string(&c->kb_variant, v);
+    } else if (!strcmp(key, "options")) {
+        set_string(&c->kb_options, v);
+    } else if (!strcmp(key, "repeat_rate")) {
+        set_int(l, key, v, 0, 1000, &c->repeat_rate);
+    } else if (!strcmp(key, "repeat_delay")) {
+        set_int(l, key, v, 0, 10000, &c->repeat_delay);
+    } else {
+        report(l, CONFIG_WARNING, "unknown key '%s' in [keyboard]", key);
+    }
+}
+
+static void handle_output(struct loader *l, const char *name, const char *key, const char *v)
+{
+    if (!*name) {
+        report(l, CONFIG_ERROR, "section [output:] needs an output name, e.g. [output:HDMI-A-1]");
+        return;
+    }
+    struct config *c = l->c;
+    struct output_cfg *oc = NULL;
+    for (size_t i = 0; i < c->n_outputs; i++) {
+        if (!strcmp(c->outputs[i].name, name)) {
+            oc = &c->outputs[i];
+        }
+    }
+    if (!oc) {
+        c->outputs = xrealloc(c->outputs, (c->n_outputs + 1) * sizeof *c->outputs);
+        oc = &c->outputs[c->n_outputs++];
+        *oc = (struct output_cfg){.name = xstrdup(name), .enabled = true};
+    }
+    if (!strcmp(key, "scale")) {
+        char *end;
+        double sc = strtod(v, &end);
+        if (end == v || *end != '\0' || sc < 0.25 || sc > 10) {
+            report(l, CONFIG_ERROR, "scale: '%s' is not a number between 0.25 and 10", v);
+        } else {
+            oc->scale = sc;
+        }
+    } else if (!strcmp(key, "position")) {
+        int x, y;
+        char extra;
+        if (sscanf(v, " %d , %d %c", &x, &y, &extra) == 2) {
+            oc->has_pos = true;
+            oc->x = x;
+            oc->y = y;
+        } else {
+            report(l, CONFIG_ERROR, "position: '%s' is not 'x,y' (e.g. 1920,0)", v);
+        }
+    } else if (!strcmp(key, "enabled")) {
+        set_bool(l, key, v, &oc->enabled);
+    } else {
+        report(l, CONFIG_WARNING, "unknown key '%s' in [output:%s]", key, name);
     }
 }
 
@@ -485,6 +572,10 @@ static int config_ini_cb(void *user, const char *section, const char *name, cons
         handle_windows(l, name, value);
     } else if (!strcmp(section, "animations")) {
         handle_animations(l, name, value);
+    } else if (!strcmp(section, "keyboard")) {
+        handle_keyboard(l, name, value);
+    } else if (!strncmp(section, "output:", 7)) {
+        handle_output(l, section + 7, name, value);
     } else if (!strcmp(section, "keybinds")) {
         handle_keybind(l, name, value);
     } else if (!strcmp(section, "mouse")) {
@@ -591,6 +682,16 @@ const struct keybind *config_find_keybind(const struct config *c, uint32_t mods,
     for (size_t i = c->n_binds; i-- > 0;) { /* last definition wins */
         if (c->binds[i].sym == sym && c->binds[i].mods == mods) {
             return &c->binds[i];
+        }
+    }
+    return NULL;
+}
+
+const struct output_cfg *config_find_output(const struct config *c, const char *name)
+{
+    for (size_t i = 0; i < c->n_outputs; i++) {
+        if (!strcmp(c->outputs[i].name, name)) {
+            return &c->outputs[i];
         }
     }
     return NULL;

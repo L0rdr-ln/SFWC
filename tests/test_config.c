@@ -204,6 +204,65 @@ static void test_values_and_hash_colors(void)
     config_finish(&c);
 }
 
+static void test_keyboard_and_outputs(void)
+{
+    struct config c;
+    struct log l = {0};
+    config_init_defaults(&c);
+    CHECK(c.repeat_rate == 25 && c.repeat_delay == 600 && c.kb_layout == NULL);
+    CHECK(config_load_string(&c,
+                             "[keyboard]\n"                       /* 1 */
+                             "layout = de\n"                      /* 2 */
+                             "variant = nodeadkeys\n"             /* 3 */
+                             "options = caps:escape\n"            /* 4 */
+                             "repeat_rate = 40\n"                 /* 5 */
+                             "repeat_delay = lots\n"              /* 6 bad */
+                             "colour = red\n"                     /* 7 unknown */
+                             "[output:HDMI-A-1]\n"                /* 8 */
+                             "scale = 1.5\n"                      /* 9 */
+                             "position = -1920, 0\n"              /* 10 */
+                             "[output:DP-1]\n"                    /* 11 */
+                             "scale = 99\n"                       /* 12 bad */
+                             "position = left\n"                  /* 13 bad */
+                             "enabled = no\n"                     /* 14 */
+                             "mode = 1920x1080\n"                 /* 15 unknown */
+                             "[output:]\n"                        /* 16 */
+                             "scale = 2\n"                        /* 17 bad section */
+                             "[output:HDMI-A-1]\n"                /* 18 merges */
+                             "enabled = true\n"
+                             "[windows]\nsnap_to_windows = off\n",
+                             collect, &l));
+    CHECK(!strcmp(c.kb_layout, "de") && !strcmp(c.kb_variant, "nodeadkeys") &&
+          !strcmp(c.kb_options, "caps:escape") && c.kb_model == NULL);
+    CHECK(c.repeat_rate == 40 && c.repeat_delay == 600);
+    CHECK(has_msg(&l, CONFIG_ERROR, 6, "repeat_delay"));
+    CHECK(has_msg(&l, CONFIG_WARNING, 7, "unknown key 'colour' in [keyboard]"));
+    CHECK(has_msg(&l, CONFIG_ERROR, 12, "scale"));
+    CHECK(has_msg(&l, CONFIG_ERROR, 13, "position"));
+    CHECK(has_msg(&l, CONFIG_WARNING, 15, "unknown key 'mode' in [output:DP-1]"));
+    CHECK(has_msg(&l, CONFIG_ERROR, 17, "needs an output name")); /* reported on the first key */
+    CHECK(c.n_outputs == 2); /* HDMI-A-1 merged, DP-1, the empty name was rejected */
+    const struct output_cfg *o = config_find_output(&c, "HDMI-A-1");
+    CHECK(o && o->scale == 1.5 && o->has_pos && o->x == -1920 && o->y == 0 && o->enabled);
+    o = config_find_output(&c, "DP-1");
+    CHECK(o && o->scale == 0 && !o->has_pos && !o->enabled);
+    CHECK(!config_find_output(&c, "eDP-1"));
+    CHECK(!c.snap_to_windows);
+    /* empty value resets to the xkb default */
+    CHECK(config_load_string(&c, "[keyboard]\nlayout =\n", NULL, NULL));
+    CHECK(c.kb_layout == NULL);
+    config_finish(&c);
+
+    /* new actions */
+    config_init_defaults(&c);
+    CHECK(config_load_string(&c, "[keybinds]\nAlt+o = move-to-next-output\nAlt+Shift+o = focus-next-output\n", NULL, NULL));
+    const struct keybind *b = config_find_keybind(&c, CFG_MOD_ALT, XKB_KEY_o);
+    CHECK(b && b->action == ACTION_MOVE_OUTPUT);
+    b = config_find_keybind(&c, CFG_MOD_ALT | CFG_MOD_SHIFT, XKB_KEY_o);
+    CHECK(b && b->action == ACTION_FOCUS_OUTPUT);
+    config_finish(&c);
+}
+
 static void test_expand(void)
 {
     struct config c;
@@ -235,6 +294,7 @@ int main(void)
     test_replace_and_last_wins();
     test_mod_rebuilds_defaults();
     test_values_and_hash_colors();
+    test_keyboard_and_outputs();
     test_expand();
     test_missing_file();
     if (failures) {

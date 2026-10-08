@@ -26,6 +26,8 @@ enum action {
     ACTION_CYCLE,
     ACTION_RELOAD,
     ACTION_QUIT,
+    ACTION_MOVE_OUTPUT,  /* move the focused window to the next output */
+    ACTION_FOCUS_OUTPUT, /* warp to the next output and focus its top window */
     ACTION_MOVE,   /* mouse only */
     ACTION_RESIZE, /* mouse only */
 };
@@ -45,6 +47,15 @@ struct mousebind {
     enum action action;
 };
 
+/* [output:NAME] */
+struct output_cfg {
+    char *name;
+    double scale; /* 0 = not set */
+    bool has_pos;
+    int x, y;
+    bool enabled;
+};
+
 struct config {
     /* [general] */
     char *theme;
@@ -53,8 +64,16 @@ struct config {
     enum focus_mode focus;
     /* [windows] */
     bool snap_to_edges;
+    bool snap_to_windows;
     int snap_distance;
     int gap;
+    /* [keyboard]; NULL strings mean the xkb default */
+    char *kb_rules, *kb_model, *kb_layout, *kb_variant, *kb_options;
+    int repeat_rate;  /* characters per second, 0 = no repeat */
+    int repeat_delay; /* ms before repeating starts */
+    /* [output:NAME] */
+    struct output_cfg *outputs;
+    size_t n_outputs;
     /* [animations] (parsed now, used from the animation milestone on) */
     bool anim_enabled;
     char anim_open[24], anim_close[24], anim_easing[24];
@@ -88,6 +107,7 @@ bool config_load_string(struct config *c, const char *text, config_log_fn log, v
 
 /* Exact-modifier match; `sym` is the key's base-level keysym (any case). */
 const struct keybind *config_find_keybind(const struct config *c, uint32_t mods, uint32_t sym);
+const struct output_cfg *config_find_output(const struct config *c, const char *name);
 const struct mousebind *config_find_mousebind(const struct config *c, uint32_t mods,
                                               uint32_t button);
 

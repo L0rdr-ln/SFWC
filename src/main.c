@@ -30,6 +30,8 @@
 #include <linux/input-event-codes.h>
 #include <wayland-server-core.h>
 #include <wlr/backend.h>
+#include <wlr/backend/headless.h>
+#include <wlr/backend/multi.h>
 #include <wlr/render/allocator.h>
 #include <wlr/render/wlr_renderer.h>
 #include <wlr/types/wlr_compositor.h>
@@ -46,6 +48,7 @@
 #include <wlr/types/wlr_virtual_keyboard_v1.h>
 #include <wlr/types/wlr_virtual_pointer_v1.h>
 #include <wlr/types/wlr_xcursor_manager.h>
+#include <wlr/types/wlr_xdg_output_v1.h>
 #include <wlr/types/wlr_xdg_shell.h>
 #include <wlr/util/edges.h>
 #include <wlr/util/log.h>
@@ -156,6 +159,7 @@ struct keyboard {
     struct wl_list link;
     struct server *server;
     struct wlr_keyboard *wlr_keyboard;
+    bool is_virtual; /* virtual keyboards bring their own keymap */
     struct wl_listener modifiers;
     struct wl_listener key;
     struct wl_listener destroy;
@@ -369,6 +373,131 @@ static void toplevel_set_minimized(struct toplevel *t, bool minimize)
 /* ------------------------------------------------------------- keyboard */
 
 static void reload_config(struct server *server);
+static void process_cursor_motion(struct server *server, uint32_t time);
+
+static uint32_t now_msec(void)
+{
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (uint32_t)(ts.tv_sec * 1000 + ts.tv_nsec / 1000000);
+}
+
+/* --- outputs ordered left-to-right, then top-to-bottom ("next output" is cyclic) --- */
+
+#define MAX_OUTPUTS 16
+struct output_box {
+    struct wlr_output *output;
+    struct wlr_box box;
+};
+
+static int output_box_cmp(const void *a, const void *b)
+{
+    const struct output_box *x = a, *y = b;
+    if (x->box.x != y->box.x) {
+        return x->box.x < y->box.x ? -1 : 1;
+    }
+    if (x->box.y != y->box.y) {
+        return x->box.y < y->box.y ? -1 : 1;
+    }
+    return 0;
+}
+
+static size_t layout_outputs(struct server *server, struct output_box *out)
+{
+    size_t n = 0;
+    struct output *o;
+    wl_list_for_each(o, &server->outputs, link) {
+        if (n == MAX_OUTPUTS || !wlr_output_layout_get(server->output_layout, o->wlr_output)) {
+            continue;
+        }
+        out[n].output = o->wlr_output;
+        wlr_output_layout_get_box(server->output_layout, o->wlr_output, &out[n].box);
+        n++;
+    }
+    qsort(out, n, sizeof *out, output_box_cmp);
+    return n;
+}
+
+static size_t output_index_at(const struct output_box *ob, size_t n, double x, double y)
+{
+    for (size_t i = 0; i < n; i++) {
+        if (x >= ob[i].box.x && x < ob[i].box.x + ob[i].box.width && y >= ob[i].box.y &&
+            y < ob[i].box.y + ob[i].box.height) {
+            return i;
+        }
+    }
+    return 0;
+}
+
+static void clamp_into(const struct wlr_box *area, int gap, int w, int h, int *x, int *y)
+{
+    int max_x = area->x + area->width - gap - w;
+    int max_y = area->y + area->height - gap - h;
+    if (*x > max_x) {
+        *x = max_x;
+    }
+    if (*y > max_y) {
+        *y = max_y;
+    }
+    if (*x < area->x + gap) {
+        *x = area->x + gap;
+    }
+    if (*y < area->y + gap) {
+        *y = area->y + gap;
+    }
+}
+
+static void move_to_next_output(struct toplevel *t)
+{
+    struct server *server = t->server;
+    struct output_box obs[MAX_OUTPUTS];
+    size_t n = layout_outputs(server, obs);
+    if (n < 2) {
+        return;
+    }
+    bool fitted = t->maximized || t->fullscreen;
+    struct wlr_box now = toplevel_geometry(t);
+    struct wlr_box ref = fitted ? t->saved : now;
+    size_t cur = output_index_at(obs, n, now.x + now.width / 2.0, now.y + now.height / 2.0);
+    const struct wlr_box *cb = &obs[cur].box;
+    const struct wlr_box *nb = &obs[(cur + 1) % n].box;
+    int x = nb->x + (ref.x - cb->x);
+    int y = nb->y + (ref.y - cb->y);
+    clamp_into(nb, server->config.gap, ref.width, ref.height, &x, &y);
+    if (fitted) { /* re-fit on the new output through the saved geometry */
+        t->saved.x = x;
+        t->saved.y = y;
+        toplevel_apply_state(t, t->maximized, t->fullscreen);
+    } else {
+        toplevel_move_to(t, x, y);
+    }
+}
+
+/* Warp the pointer to the middle of the next output and focus its top window. */
+static void focus_next_output(struct server *server)
+{
+    struct output_box obs[MAX_OUTPUTS];
+    size_t n = layout_outputs(server, obs);
+    if (n < 2) {
+        return;
+    }
+    size_t cur = output_index_at(obs, n, server->cursor->x, server->cursor->y);
+    const struct wlr_box *nb = &obs[(cur + 1) % n].box;
+    wlr_cursor_warp(server->cursor, NULL, nb->x + nb->width / 2.0, nb->y + nb->height / 2.0);
+    struct toplevel *t;
+    wl_list_for_each(t, &server->toplevels, link) {
+        if (t->minimized) {
+            continue;
+        }
+        struct wlr_box g = toplevel_geometry(t);
+        double cx = g.x + g.width / 2.0, cy = g.y + g.height / 2.0;
+        if (cx >= nb->x && cx < nb->x + nb->width && cy >= nb->y && cy < nb->y + nb->height) {
+            focus_toplevel(t);
+            break;
+        }
+    }
+    process_cursor_motion(server, now_msec());
+}
 
 static void dispatch_action(struct server *server, enum action action, const char *arg)
 {
@@ -426,6 +555,14 @@ static void dispatch_action(struct server *server, enum action action, const cha
     }
     case ACTION_RELOAD:
         reload_config(server);
+        break;
+    case ACTION_MOVE_OUTPUT:
+        if (top) {
+            move_to_next_output(top);
+        }
+        break;
+    case ACTION_FOCUS_OUTPUT:
+        focus_next_output(server);
         break;
     case ACTION_MOVE:
     case ACTION_RESIZE:
@@ -495,18 +632,48 @@ static void update_seat_capabilities(struct server *server)
     wlr_seat_set_capabilities(server->seat, caps);
 }
 
-static void server_new_keyboard(struct server *server, struct wlr_keyboard *wlr_keyboard)
+/* [keyboard] section: layout (xkb rule names) and repeat rate. A layout that does not
+ * compile falls back to the default one. Virtual keyboards keep the keymap their client
+ * sent, so on reload only physical keyboards get a new keymap. */
+static void apply_keyboard_config(struct server *server, struct keyboard *keyboard, bool set_keymap)
+{
+    const struct config *cfg = &server->config;
+    if (set_keymap) {
+        struct xkb_context *context = xkb_context_new(XKB_CONTEXT_NO_FLAGS);
+        struct xkb_rule_names names = {
+            .rules = cfg->kb_rules,
+            .model = cfg->kb_model,
+            .layout = cfg->kb_layout,
+            .variant = cfg->kb_variant,
+            .options = cfg->kb_options,
+        };
+        struct xkb_keymap *keymap =
+            xkb_keymap_new_from_names(context, &names, XKB_KEYMAP_COMPILE_NO_FLAGS);
+        if (!keymap) {
+            wlr_log(WLR_ERROR,
+                    "cannot compile keymap (layout='%s' variant='%s' options='%s'), "
+                    "using the default layout",
+                    cfg->kb_layout ? cfg->kb_layout : "", cfg->kb_variant ? cfg->kb_variant : "",
+                    cfg->kb_options ? cfg->kb_options : "");
+            keymap = xkb_keymap_new_from_names(context, NULL, XKB_KEYMAP_COMPILE_NO_FLAGS);
+        }
+        if (keymap) {
+            wlr_keyboard_set_keymap(keyboard->wlr_keyboard, keymap);
+            xkb_keymap_unref(keymap);
+        }
+        xkb_context_unref(context);
+    }
+    wlr_keyboard_set_repeat_info(keyboard->wlr_keyboard, cfg->repeat_rate, cfg->repeat_delay);
+}
+
+static void server_new_keyboard(struct server *server, struct wlr_keyboard *wlr_keyboard,
+                                bool is_virtual)
 {
     struct keyboard *keyboard = calloc(1, sizeof(*keyboard));
     keyboard->server = server;
     keyboard->wlr_keyboard = wlr_keyboard;
-
-    struct xkb_context *context = xkb_context_new(XKB_CONTEXT_NO_FLAGS);
-    struct xkb_keymap *keymap = xkb_keymap_new_from_names(context, NULL, XKB_KEYMAP_COMPILE_NO_FLAGS);
-    wlr_keyboard_set_keymap(wlr_keyboard, keymap);
-    xkb_keymap_unref(keymap);
-    xkb_context_unref(context);
-    wlr_keyboard_set_repeat_info(wlr_keyboard, 25, 600);
+    keyboard->is_virtual = is_virtual;
+    apply_keyboard_config(server, keyboard, true);
 
     keyboard->modifiers.notify = keyboard_handle_modifiers;
     wl_signal_add(&wlr_keyboard->events.modifiers, &keyboard->modifiers);
@@ -533,7 +700,7 @@ static void server_new_input(struct wl_listener *listener, void *data)
     struct wlr_input_device *device = data;
     switch (device->type) {
     case WLR_INPUT_DEVICE_KEYBOARD:
-        server_new_keyboard(server, wlr_keyboard_from_input_device(device));
+        server_new_keyboard(server, wlr_keyboard_from_input_device(device), false);
         break;
     case WLR_INPUT_DEVICE_POINTER:
         server_new_pointer(server, device);
@@ -556,7 +723,7 @@ static void server_new_virtual_keyboard(struct wl_listener *listener, void *data
 {
     struct server *server = wl_container_of(listener, server, new_virtual_keyboard);
     struct wlr_virtual_keyboard_v1 *vkbd = data;
-    server_new_keyboard(server, &vkbd->keyboard);
+    server_new_keyboard(server, &vkbd->keyboard, true);
     update_seat_capabilities(server);
 }
 
@@ -640,35 +807,58 @@ static void begin_interactive(struct toplevel *toplevel, enum cursor_mode mode, 
     }
 }
 
+/* If `target` is closer to `pos` than *best, remember it. */
+static void try_snap(double pos, double target, double *best, double *out)
+{
+    double d = fabs(pos - target);
+    if (d < *best) {
+        *best = d;
+        *out = target;
+    }
+}
+
 static void process_cursor_move(struct server *server)
 {
     struct toplevel *toplevel = server->grabbed_toplevel;
     double nx = server->cursor->x - server->grab_x;
     double ny = server->cursor->y - server->grab_y;
 
-    /* Snap the window's geometry to the edges of the output under the cursor. */
+    /* Snap the window's geometry to the output edges and to other windows (keeping
+     * `gap` between them); the nearest candidate on each axis wins. */
     struct wlr_box geo = {0};
     wlr_xdg_surface_get_geometry(toplevel->xdg_toplevel->base, &geo);
+    const struct config *cfg = &server->config;
+    double x = nx + geo.x, y = ny + geo.y;
+    double snap = cfg->snap_distance, gap = cfg->gap;
+    double best_x = snap, best_y = snap, tx = x, ty = y;
     struct wlr_box box = output_box_at(server, server->cursor->x, server->cursor->y);
-    if (box.width > 0 && server->config.snap_to_edges) {
-        double x = nx + geo.x, y = ny + geo.y;
-        int gap = server->config.gap;
-        double snap = server->config.snap_distance;
-        double left = box.x + gap, right = box.x + box.width - gap - geo.width;
-        double top = box.y + gap, bottom = box.y + box.height - gap - geo.height;
-        if (fabs(x - left) < snap) {
-            x = left;
-        } else if (fabs(x - right) < snap) {
-            x = right;
-        }
-        if (fabs(y - top) < snap) {
-            y = top;
-        } else if (fabs(y - bottom) < snap) {
-            y = bottom;
-        }
-        nx = x - geo.x;
-        ny = y - geo.y;
+    if (box.width > 0 && cfg->snap_to_edges) {
+        try_snap(x, box.x + gap, &best_x, &tx);
+        try_snap(x, box.x + box.width - gap - geo.width, &best_x, &tx);
+        try_snap(y, box.y + gap, &best_y, &ty);
+        try_snap(y, box.y + box.height - gap - geo.height, &best_y, &ty);
     }
+    if (cfg->snap_to_windows) {
+        struct toplevel *o;
+        wl_list_for_each(o, &server->toplevels, link) {
+            if (o == toplevel || o->minimized) {
+                continue;
+            }
+            struct wlr_box og = toplevel_geometry(o);
+            bool overlap_y = y < og.y + og.height + snap && y + geo.height > og.y - snap;
+            bool overlap_x = x < og.x + og.width + snap && x + geo.width > og.x - snap;
+            if (overlap_y) {
+                try_snap(x, og.x + og.width + gap, &best_x, &tx);
+                try_snap(x, og.x - gap - geo.width, &best_x, &tx);
+            }
+            if (overlap_x) {
+                try_snap(y, og.y + og.height + gap, &best_y, &ty);
+                try_snap(y, og.y - gap - geo.height, &best_y, &ty);
+            }
+        }
+    }
+    nx = tx - geo.x;
+    ny = ty - geo.y;
     wlr_scene_node_set_position(&toplevel->scene_tree->node, nx, ny);
 }
 
@@ -843,9 +1033,13 @@ static void server_new_output(struct wl_listener *listener, void *data)
 
     wlr_output_init_render(wlr_output, server->allocator, server->renderer);
 
+    const struct output_cfg *oc = config_find_output(&server->config, wlr_output->name);
     struct wlr_output_state state;
     wlr_output_state_init(&state);
-    wlr_output_state_set_enabled(&state, true);
+    wlr_output_state_set_enabled(&state, !oc || oc->enabled);
+    if (oc && oc->scale > 0) {
+        wlr_output_state_set_scale(&state, oc->scale);
+    }
     struct wlr_output_mode *mode = wlr_output_preferred_mode(wlr_output);
     if (mode != NULL) {
         wlr_output_state_set_mode(&state, mode);
@@ -864,8 +1058,13 @@ static void server_new_output(struct wl_listener *listener, void *data)
     wl_signal_add(&wlr_output->events.destroy, &output->destroy);
     wl_list_insert(&server->outputs, &output->link);
 
+    if (oc && !oc->enabled) {
+        wlr_log(WLR_INFO, "output %s is disabled in the config", wlr_output->name);
+        return;
+    }
     struct wlr_output_layout_output *l_output =
-        wlr_output_layout_add_auto(server->output_layout, wlr_output);
+        (oc && oc->has_pos) ? wlr_output_layout_add(server->output_layout, wlr_output, oc->x, oc->y)
+                            : wlr_output_layout_add_auto(server->output_layout, wlr_output);
     struct wlr_scene_output *scene_output = wlr_scene_output_create(server->scene, wlr_output);
     wlr_scene_output_layout_add_output(server->scene_layout, l_output, scene_output);
     wlr_log(WLR_INFO, "output %s added", wlr_output->name);
@@ -1071,6 +1270,32 @@ static void reload_config(struct server *server)
     server->config = fresh;
     wlr_log(WLR_INFO, "config loaded: %s", server->config_path);
 
+    struct keyboard *kb;
+    wl_list_for_each(kb, &server->keyboards, link) {
+        apply_keyboard_config(server, kb, !kb->is_virtual);
+    }
+    /* scale and position of outputs that are already running */
+    struct output *out;
+    wl_list_for_each(out, &server->outputs, link) {
+        if (!wlr_output_layout_get(server->output_layout, out->wlr_output)) {
+            continue; /* disabled at startup: `enabled` is only read when the output appears */
+        }
+        const struct output_cfg *oc = config_find_output(&server->config, out->wlr_output->name);
+        double want = oc && oc->scale > 0 ? oc->scale : 1.0;
+        if (fabs(out->wlr_output->scale - want) > 0.001) {
+            struct wlr_output_state state;
+            wlr_output_state_init(&state);
+            wlr_output_state_set_scale(&state, want);
+            if (!wlr_output_commit_state(out->wlr_output, &state)) {
+                wlr_log(WLR_ERROR, "cannot set scale %.2f on %s", want, out->wlr_output->name);
+            }
+            wlr_output_state_finish(&state);
+        }
+        if (oc && oc->has_pos) {
+            wlr_output_layout_add(server->output_layout, out->wlr_output, oc->x, oc->y);
+        }
+    }
+
     /* windows that are fitted to the output depend on the gap */
     struct toplevel *t;
     wl_list_for_each(t, &server->toplevels, link) {
@@ -1129,7 +1354,8 @@ static void init_config(struct server *server, struct wl_event_loop *loop)
         strcpy(dir, ".");
         server->config_name = strdup(server->config_path);
     }
-    int fd = inotify_init1(IN_NONBLOCK | IN_CLOEXEC);
+    const char *no_watch = getenv("SFWC_NO_CONFIG_WATCH"); /* testing aid */
+    int fd = no_watch && !strcmp(no_watch, "1") ? -1 : inotify_init1(IN_NONBLOCK | IN_CLOEXEC);
     if (fd >= 0 && inotify_add_watch(fd, dir, IN_CLOSE_WRITE | IN_MOVED_TO) >= 0) {
         server->inotify_fd = fd;
         server->inotify_source =
@@ -1144,6 +1370,22 @@ static void init_config(struct server *server, struct wl_event_loop *loop)
 }
 
 /* ----------------------------------------------------------------- main */
+
+/* Testing aid: SFWC_TEST_OUTPUTS=1024x600,800x600 adds headless outputs. */
+static void add_test_outputs(struct wlr_backend *backend, void *data)
+{
+    if (!wlr_backend_is_headless(backend)) {
+        return;
+    }
+    char *spec = strdup(data), *save = NULL;
+    for (char *tok = strtok_r(spec, ",", &save); tok; tok = strtok_r(NULL, ",", &save)) {
+        unsigned w, h;
+        if (sscanf(tok, "%ux%u", &w, &h) == 2) {
+            wlr_headless_add_output(backend, w, h);
+        }
+    }
+    free(spec);
+}
 
 static int handle_signal(int signo, void *data)
 {
@@ -1195,6 +1437,15 @@ int main(int argc, char *argv[])
         return EXIT_FAILURE;
     }
 
+    const char *test_outputs = getenv("SFWC_TEST_OUTPUTS");
+    if (test_outputs && *test_outputs) {
+        if (wlr_backend_is_multi(server.backend)) {
+            wlr_multi_for_each_backend(server.backend, add_test_outputs, (void *)test_outputs);
+        } else {
+            add_test_outputs(server.backend, (void *)test_outputs);
+        }
+    }
+
     server.renderer = wlr_renderer_autocreate(server.backend);
     if (!server.renderer) {
         wlr_log(WLR_ERROR, "failed to create renderer");
@@ -1213,6 +1464,7 @@ int main(int argc, char *argv[])
     wlr_data_device_manager_create(server.display);
 
     server.output_layout = wlr_output_layout_create(server.display);
+    wlr_xdg_output_manager_v1_create(server.display, server.output_layout);
     wl_list_init(&server.outputs);
     server.new_output.notify = server_new_output;
     wl_signal_add(&server.backend->events.new_output, &server.new_output);
