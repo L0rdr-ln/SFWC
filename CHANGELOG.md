@@ -6,6 +6,8 @@ Versions follow the roadmap milestones while the project is pre-1.0:
 ## Unreleased – M3 "Configuration" and M1–M3 completion
 
 ### Added
+- Workspaces (`workspaces = N`, `workspace:N`, `move-to-workspace:N`, defaults on `$mod+1..4`).
+- `ext-session-lock` for screen lockers.
 - `wlr-layer-shell`: panels, wallpapers and launchers (M5). Exclusive zones shrink the area used
   for maximizing, placing and snapping windows; exclusive/on-demand keyboard focus; popups.
 - Primary selection, `wlr-data-control` (clipboard managers), `ext-idle-notify` and idle inhibit

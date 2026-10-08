@@ -27,6 +27,7 @@ are safe. Booleans: `true/false/yes/no/on/off/1/0`.
 
 | Section | Key | Values / default | Meaning |
 |---|---|---|---|
+| general | `workspaces` | 1-9, `4` | number of workspaces; every window lives on exactly one, new windows open on the current one |
 | general | `theme` | name, `default` | theme name (themes arrive with the theme package) |
 | general | `terminal` | command, `$SFWC_TERMINAL` or `foot` | used by `$terminal` |
 | general | `focus` | `click` (default), `follow-mouse` | follow-mouse focuses without raising |
@@ -70,6 +71,8 @@ $mod+Shift+m = restore-minimized
 | `cycle-windows` | focus and raise the bottom-most visible window |
 | `move-to-next-output` | send the focused window to the next output (left to right, then top to bottom, wrapping); maximized/fullscreen windows are re-fitted |
 | `focus-next-output` | move the pointer to the middle of the next output and focus its top window |
+| `workspace:<1-9>` | switch to that workspace (default `$mod+1` … `$mod+4`) |
+| `move-to-workspace:<1-9>` | send the focused window to that workspace (default `$mod+Shift+1` … `$mod+Shift+4`) |
 | `reload-config` | re-read the config file |
 | `quit` | exit the compositor |
 
@@ -129,3 +132,13 @@ Testing aids (used by the test suite; leave them unset):
 | `SFWC_ENABLE_VIRTUAL_INPUT=1` | expose the virtual keyboard/pointer protocols so tests can inject input; any client could otherwise type into your session |
 | `SFWC_TEST_OUTPUTS=1024x600,...` | add extra headless outputs (only with `WLR_BACKENDS=headless`) |
 | `SFWC_NO_CONFIG_WATCH=1` | do not watch the config file; only `reload-config` reloads |
+
+## Desktop integration
+
+Bars, wallpapers and launchers use `wlr-layer-shell` (waybar, swaybg, fuzzel, ...). A bar's
+exclusive zone is subtracted from the area used for maximizing, placing and snapping windows.
+Other protocols offered: `ext-session-lock` (swaylock: while locked, windows are hidden, only
+the lock client gets keyboard and pointer, and all keybinds except `quit` are off; a locker
+that crashes leaves the session locked), `ext-idle-notify` and idle inhibit (swayidle),
+`wlr-foreign-toplevel-management` (taskbars), primary selection, `wlr-data-control` (clipboard
+managers) and `wlr-screencopy` (grim).

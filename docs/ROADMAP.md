@@ -75,10 +75,10 @@ are roughly in build order; check them off as they land.
 ## M5 – Desktop integration
 - [x] `wlr-layer-shell` (bars, wallpaper, launcher; exclusive zones, exclusive keyboard focus, popups)
 - [x] `ext-idle-notify`, idle inhibit
-- [ ] `ext-session-lock`
+- [x] `ext-session-lock`
 - [x] `wlr-foreign-toplevel-management` (taskbar)
-- [ ] workspace protocol
-- [ ] Workspaces + workspace-switch animation
+- [x] Workspaces: `workspace:N` / `move-to-workspace:N`, per-window workspace
+- [ ] Workspace-switch animation, `ext-workspace` protocol (needs a hand-written implementation)
 - [x] Screenshots / screen capture (screencopy), clipboard, primary selection, data-control
 
 ## M6 – Themes and templating  *(separate `sfwc-themes` package)*
