@@ -595,6 +595,9 @@ static void server_new_output(struct wl_listener *listener, void *data)
 static void toplevel_map(struct wl_listener *listener, void *data)
 {
     struct toplevel *toplevel = wl_container_of(listener, toplevel, map);
+    wlr_log(WLR_INFO, "window mapped: title=%s app_id=%s",
+            toplevel->xdg_toplevel->title ? toplevel->xdg_toplevel->title : "(none)",
+            toplevel->xdg_toplevel->app_id ? toplevel->xdg_toplevel->app_id : "(none)");
     wl_list_insert(&toplevel->server->toplevels, &toplevel->link);
     focus_toplevel(toplevel);
 }
@@ -602,6 +605,7 @@ static void toplevel_map(struct wl_listener *listener, void *data)
 static void toplevel_unmap(struct wl_listener *listener, void *data)
 {
     struct toplevel *toplevel = wl_container_of(listener, toplevel, unmap);
+    wlr_log(WLR_INFO, "window unmapped");
     if (toplevel == toplevel->server->grabbed_toplevel) {
         reset_cursor_mode(toplevel->server);
     }

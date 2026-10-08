@@ -36,7 +36,7 @@ if get_option('compositor')
     output: 'xdg-shell-protocol.h',
     command: [wayland_scanner, 'server-header', '@INPUT@', '@OUTPUT@'])
 
-  executable('sfwc',
+  sfwc_exe = executable('sfwc',
     'src/main.c', xdg_shell_h,
     dependencies: [wlroots, wayland_server, xkbcommon, inih_dep],
     c_args: ['-Wno-unused-parameter'],
