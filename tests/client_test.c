@@ -554,7 +554,7 @@ static void run_input_tests(struct app *app, struct wl_display *d)
             usleep(100 * 1000);
         }
     }
-    expect_configure(app, d, 1, 0, app->out_w - 42, app->out_h - 40,
+    expect_configure(app, d, 1, 0, app->out_w - 40, app->out_h - 40,
                      "Ctrl+x maximizes with the reloaded gap of 20");
     vtap(app, d, MOD_CTRL, KEY_X);
     expect_configure(app, d, 0, 0, W, H, "Ctrl+x again restores");
