@@ -1,10 +1,14 @@
 /*
- * Minimal Wayland client used by tests/run_client_test.sh.
+ * Test client used by tests/run_client_test.sh.
  *
- * Connects to the compositor named by $WAYLAND_DISPLAY, opens an xdg toplevel
- * with a shm buffer, opens an xdg popup on it, waits for a frame callback
- * (proves the compositor mapped and rendered the window) and closes both.
- * Exit code 0 = everything worked.
+ *   client_test [single]   one output: windows, popup, maximize/fullscreen/minimize,
+ *                          input (virtual keyboard + pointer), snapping, live config reload
+ *   client_test multi      two outputs with different size/scale/position: per-output
+ *                          placement and maximize, follow-mouse focus, move/focus to the
+ *                          next output, reload-config key (no file watching)
+ *
+ * It connects to the compositor named by $WAYLAND_DISPLAY and exits 0 when every check
+ * passed. The compositor is started by the script with matching config and environment.
  */
 #define _GNU_SOURCE
 #include <errno.h>
@@ -17,6 +21,7 @@
 
 #include <linux/input-event-codes.h>
 #include <wayland-client.h>
+#include "xdg-output-unstable-v1-client-protocol.h"
 #include "xdg-shell-client-protocol.h"
 #ifdef HAVE_VIRTUAL_INPUT
 #include <xkbcommon/xkbcommon.h>
@@ -26,20 +31,45 @@
 
 #define W 200
 #define H 100
-#define GAP 8 /* must match GAP in src/main.c */
-#define SNAP 12 /* must match SNAP_DISTANCE in src/main.c */
+#define GAP 8   /* must match the default gap in src/config.c */
+#define SNAP 12 /* must match the default snap_distance in src/config.c */
+#define MAX_OUTS 4
+
+struct app;
+
+struct out_info {
+    struct app *app;
+    struct wl_output *wl;
+    struct zxdg_output_v1 *xdg;
+    char name[32];
+    int mw, mh, scale;     /* wl_output mode (physical px) and scale */
+    int lx, ly, lw, lh;    /* xdg_output logical position/size */
+};
+
+/* A plain toplevel window with its last configure. */
+struct win {
+    struct wl_surface *surface;
+    struct xdg_surface *xs;
+    struct xdg_toplevel *tl;
+    struct wl_buffer *buf;
+    int configured, closed;
+    int cfg_arrived, cfg_w, cfg_h, cfg_max, cfg_fs;
+};
 
 struct app {
     struct wl_compositor *compositor;
     struct wl_shm *shm;
     struct xdg_wm_base *wm_base;
-    struct wl_output *output;
-    int out_w, out_h;
+    struct zxdg_output_manager_v1 *xdg_out_mgr;
+    struct out_info outs[MAX_OUTS];
+    int n_outs;
+    struct wl_output *output; /* first output */
+    int out_w, out_h;         /* its mode */
+    int ext_w, ext_h;         /* extent of the whole output layout, for absolute pointer motion */
 
-    /* last toplevel configure */
+    /* main window of the single scenario, with its last configure */
     int cfg_arrived;
     int cfg_w, cfg_h, cfg_max, cfg_fs;
-
     struct wl_surface *surface;
     struct xdg_surface *xdg_surface;
     struct xdg_toplevel *toplevel;
@@ -58,10 +88,11 @@ struct app {
     struct wl_keyboard *keyboard;
     struct wl_pointer *pointer;
     int kb_enter, kb_leave;       /* counters */
+    struct wl_surface *kb_surface; /* surface that currently has keyboard focus */
+    int kb_rate, kb_delay;        /* last repeat_info */
     int key_presses[256];         /* key press events received, by key code */
     int ptr_enter, ptr_motion, ptr_button_press, ptr_button_release;
     double ptr_sx, ptr_sy;        /* last pointer position, surface-local */
-    int closed_seen;
 #ifdef HAVE_VIRTUAL_INPUT
     struct zwlr_virtual_pointer_manager_v1 *vptr_mgr;
     struct zwp_virtual_keyboard_manager_v1 *vkbd_mgr;
@@ -99,6 +130,8 @@ static struct wl_buffer *make_buffer(struct wl_shm *shm, int w, int h, uint32_t 
     close(fd);
     return buf;
 }
+
+/* ------------------------------------------------------------ main window */
 
 static void wm_base_ping(void *data, struct xdg_wm_base *wm_base, uint32_t serial)
 {
@@ -163,6 +196,8 @@ static void frame_done(void *data, struct wl_callback *cb, uint32_t time)
 }
 static const struct wl_callback_listener frame_listener = {.done = frame_done};
 
+/* ------------------------------------------------------------ seat input */
+
 static void kb_keymap(void *d, struct wl_keyboard *k, uint32_t fmt, int32_t fd, uint32_t size)
 {
     close(fd);
@@ -170,11 +205,15 @@ static void kb_keymap(void *d, struct wl_keyboard *k, uint32_t fmt, int32_t fd, 
 static void kb_enter(void *data, struct wl_keyboard *k, uint32_t serial, struct wl_surface *s,
                      struct wl_array *keys)
 {
-    ((struct app *)data)->kb_enter++;
+    struct app *app = data;
+    app->kb_surface = s;
+    app->kb_enter++;
 }
 static void kb_leave(void *data, struct wl_keyboard *k, uint32_t serial, struct wl_surface *s)
 {
-    ((struct app *)data)->kb_leave++;
+    struct app *app = data;
+    app->kb_surface = NULL;
+    app->kb_leave++;
 }
 static void kb_key(void *data, struct wl_keyboard *k, uint32_t serial, uint32_t time, uint32_t key,
                    uint32_t state)
@@ -188,7 +227,12 @@ static void kb_modifiers(void *d, struct wl_keyboard *k, uint32_t serial, uint32
                          uint32_t c, uint32_t g)
 {
 }
-static void kb_repeat(void *d, struct wl_keyboard *k, int32_t rate, int32_t delay) {}
+static void kb_repeat(void *data, struct wl_keyboard *k, int32_t rate, int32_t delay)
+{
+    struct app *app = data;
+    app->kb_rate = rate;
+    app->kb_delay = delay;
+}
 static const struct wl_keyboard_listener keyboard_listener = {
     .keymap = kb_keymap,
     .enter = kb_enter,
@@ -259,6 +303,8 @@ static const struct wl_seat_listener seat_listener = {
     .name = seat_name,
 };
 
+/* ---------------------------------------------------------------- outputs */
+
 static void output_geometry(void *d, struct wl_output *o, int32_t x, int32_t y, int32_t pw,
                             int32_t ph, int32_t sp, const char *make, const char *model, int32_t tr)
 {
@@ -266,19 +312,52 @@ static void output_geometry(void *d, struct wl_output *o, int32_t x, int32_t y, 
 static void output_mode(void *data, struct wl_output *o, uint32_t flags, int32_t w, int32_t h,
                         int32_t refresh)
 {
-    struct app *app = data;
+    struct out_info *info = data;
     if (flags & WL_OUTPUT_MODE_CURRENT) {
-        app->out_w = w;
-        app->out_h = h;
+        info->mw = w;
+        info->mh = h;
+        if (info == &info->app->outs[0]) {
+            info->app->out_w = w;
+            info->app->out_h = h;
+        }
     }
 }
 static void output_done(void *d, struct wl_output *o) {}
-static void output_scale(void *d, struct wl_output *o, int32_t f) {}
+static void output_scale(void *data, struct wl_output *o, int32_t f)
+{
+    ((struct out_info *)data)->scale = f;
+}
 static const struct wl_output_listener output_listener = {
     .geometry = output_geometry,
     .mode = output_mode,
     .done = output_done,
     .scale = output_scale,
+};
+
+static void xo_position(void *data, struct zxdg_output_v1 *x, int32_t px, int32_t py)
+{
+    struct out_info *info = data;
+    info->lx = px;
+    info->ly = py;
+}
+static void xo_size(void *data, struct zxdg_output_v1 *x, int32_t w, int32_t h)
+{
+    struct out_info *info = data;
+    info->lw = w;
+    info->lh = h;
+}
+static void xo_done(void *d, struct zxdg_output_v1 *x) {}
+static void xo_name(void *data, struct zxdg_output_v1 *x, const char *name)
+{
+    snprintf(((struct out_info *)data)->name, sizeof(((struct out_info *)data)->name), "%s", name);
+}
+static void xo_description(void *d, struct zxdg_output_v1 *x, const char *desc) {}
+static const struct zxdg_output_v1_listener xdg_output_listener = {
+    .logical_position = xo_position,
+    .logical_size = xo_size,
+    .done = xo_done,
+    .name = xo_name,
+    .description = xo_description,
 };
 
 static void registry_global(void *data, struct wl_registry *reg, uint32_t name,
@@ -292,15 +371,22 @@ static void registry_global(void *data, struct wl_registry *reg, uint32_t name,
     } else if (strcmp(interface, wl_seat_interface.name) == 0 && !app->seat) {
         app->seat = wl_registry_bind(reg, name, &wl_seat_interface, version < 5 ? version : 5);
         wl_seat_add_listener(app->seat, &seat_listener, app);
+    } else if (strcmp(interface, zxdg_output_manager_v1_interface.name) == 0) {
+        app->xdg_out_mgr = wl_registry_bind(reg, name, &zxdg_output_manager_v1_interface, 2);
 #ifdef HAVE_VIRTUAL_INPUT
     } else if (strcmp(interface, zwlr_virtual_pointer_manager_v1_interface.name) == 0) {
         app->vptr_mgr = wl_registry_bind(reg, name, &zwlr_virtual_pointer_manager_v1_interface, 1);
     } else if (strcmp(interface, zwp_virtual_keyboard_manager_v1_interface.name) == 0) {
         app->vkbd_mgr = wl_registry_bind(reg, name, &zwp_virtual_keyboard_manager_v1_interface, 1);
 #endif
-    } else if (strcmp(interface, wl_output_interface.name) == 0 && !app->output) {
-        app->output = wl_registry_bind(reg, name, &wl_output_interface, 2);
-        wl_output_add_listener(app->output, &output_listener, app);
+    } else if (strcmp(interface, wl_output_interface.name) == 0 && app->n_outs < MAX_OUTS) {
+        struct out_info *info = &app->outs[app->n_outs++];
+        info->app = app;
+        info->wl = wl_registry_bind(reg, name, &wl_output_interface, 2);
+        wl_output_add_listener(info->wl, &output_listener, info);
+        if (!app->output) {
+            app->output = info->wl;
+        }
     } else if (strcmp(interface, xdg_wm_base_interface.name) == 0) {
         app->wm_base = wl_registry_bind(reg, name, &xdg_wm_base_interface, 1);
         xdg_wm_base_add_listener(app->wm_base, &wm_base_listener, app);
@@ -335,7 +421,7 @@ static void wait_for(struct wl_display *display, const int *flag, int timeout_ms
     }
 }
 
-/* Wait until a toplevel configure with the given state/size has been received. */
+/* Wait until a configure of the main window with the given state/size has arrived. */
 static void expect_configure(struct app *app, struct wl_display *display, int max, int fs, int w,
                              int h, const char *what)
 {
@@ -353,7 +439,105 @@ static void expect_configure(struct app *app, struct wl_display *display, int ma
     fail(msg);
 }
 
+/* ------------------------------------------------------- additional windows */
+
+static void win_xs_configure(void *data, struct xdg_surface *s, uint32_t serial)
+{
+    xdg_surface_ack_configure(s, serial);
+    ((struct win *)data)->configured = 1;
+}
+static const struct xdg_surface_listener win_xs_listener = {.configure = win_xs_configure};
+
+static void win_tl_configure(void *data, struct xdg_toplevel *t, int32_t w, int32_t h,
+                             struct wl_array *states)
+{
+    struct win *win = data;
+    win->cfg_w = w;
+    win->cfg_h = h;
+    win->cfg_max = win->cfg_fs = 0;
+    uint32_t *st;
+    wl_array_for_each(st, states)
+    {
+        if (*st == XDG_TOPLEVEL_STATE_MAXIMIZED) {
+            win->cfg_max = 1;
+        } else if (*st == XDG_TOPLEVEL_STATE_FULLSCREEN) {
+            win->cfg_fs = 1;
+        }
+    }
+    win->cfg_arrived = 1;
+}
+static void win_tl_close(void *data, struct xdg_toplevel *t)
+{
+    ((struct win *)data)->closed = 1;
+}
+static const struct xdg_toplevel_listener win_tl_listener = {
+    .configure = win_tl_configure,
+    .close = win_tl_close,
+};
+
+static void win_open(struct app *app, struct wl_display *d, struct win *w, const char *title,
+                     uint32_t color)
+{
+    memset(w, 0, sizeof *w);
+    w->surface = wl_compositor_create_surface(app->compositor);
+    w->xs = xdg_wm_base_get_xdg_surface(app->wm_base, w->surface);
+    xdg_surface_add_listener(w->xs, &win_xs_listener, w);
+    w->tl = xdg_surface_get_toplevel(w->xs);
+    xdg_toplevel_add_listener(w->tl, &win_tl_listener, w);
+    xdg_toplevel_set_title(w->tl, title);
+    wl_surface_commit(w->surface);
+    wait_for(d, &w->configured, 3000, "window configure");
+    w->buf = make_buffer(app->shm, W, H, color);
+    wl_surface_attach(w->surface, w->buf, 0, 0);
+    wl_surface_commit(w->surface);
+    wl_display_roundtrip(d);
+}
+
+static void win_destroy(struct wl_display *d, struct win *w)
+{
+    xdg_toplevel_destroy(w->tl);
+    xdg_surface_destroy(w->xs);
+    wl_surface_destroy(w->surface);
+    wl_buffer_destroy(w->buf);
+    wl_display_roundtrip(d);
+}
+
+static void win_expect(struct win *w, struct wl_display *d, int max, int fs, int ew, int eh,
+                       const char *what)
+{
+    for (int i = 0; i < 20; i++) {
+        if (w->cfg_arrived && w->cfg_max == max && w->cfg_fs == fs && w->cfg_w == ew &&
+            w->cfg_h == eh) {
+            return;
+        }
+        w->cfg_arrived = 0;
+        wait_for(d, &w->cfg_arrived, 3000, what);
+    }
+    char msg[256];
+    snprintf(msg, sizeof msg, "%s: last configure max=%d fs=%d size=%dx%d, wanted max=%d fs=%d %dx%d",
+             what, w->cfg_max, w->cfg_fs, w->cfg_w, w->cfg_h, max, fs, ew, eh);
+    fail(msg);
+}
+
+/* The window must NOT receive a configure within `ms` milliseconds. */
+static void win_expect_quiet(struct win *w, struct wl_display *d, int ms, const char *what)
+{
+    w->cfg_arrived = 0;
+    for (int waited = 0; waited < ms; waited += 50) {
+        wl_display_roundtrip(d);
+        usleep(50 * 1000);
+    }
+    wl_display_roundtrip(d);
+    if (w->cfg_arrived) {
+        char msg[200];
+        snprintf(msg, sizeof msg, "unexpected configure: %s", what);
+        fail(msg);
+    }
+}
+
 #ifdef HAVE_VIRTUAL_INPUT
+/* ------------------------------------------------------------ virtual input */
+
 /* Modifier masks of the default xkb keymap. */
 #define MOD_SHIFT 0x1
 #define MOD_CTRL 0x4
@@ -403,7 +587,7 @@ static void vtap(struct app *app, struct wl_display *d, uint32_t mods, uint32_t 
 static void vptr_move(struct app *app, struct wl_display *d, double x, double y)
 {
     zwlr_virtual_pointer_v1_motion_absolute(app->vptr, app->t += 10, (uint32_t)x, (uint32_t)y,
-                                            app->out_w, app->out_h);
+                                            app->ext_w, app->ext_h);
     zwlr_virtual_pointer_v1_frame(app->vptr);
     wl_display_roundtrip(d);
 }
@@ -439,7 +623,7 @@ static void alt_drag(struct app *app, struct wl_display *d, uint32_t button, dou
     wl_display_roundtrip(d);
 }
 
-static void run_input_tests(struct app *app, struct wl_display *d)
+static void setup_virtual_devices(struct app *app, struct wl_display *d)
 {
     if (!app->vptr_mgr || !app->vkbd_mgr) {
         fail("virtual input protocols missing (run with SFWC_ENABLE_VIRTUAL_INPUT=1)");
@@ -452,13 +636,63 @@ static void run_input_tests(struct app *app, struct wl_display *d)
     if (!app->keyboard || !app->pointer) {
         fail("seat did not announce keyboard + pointer after virtual devices appeared");
     }
-    wait_for(d, &app->kb_enter, 3000, "keyboard focus (wl_keyboard.enter) for the window");
+    wait_for(d, &app->kb_enter, 3000, "keyboard focus (wl_keyboard.enter) for a window");
+}
+
+/* Returns the current config file contents (small) in a malloc'ed string. */
+static char *read_config(const char *path)
+{
+    FILE *f = fopen(path, "r");
+    if (!f) {
+        fail("cannot read the config file");
+    }
+    char *buf = calloc(1, 8192);
+    size_t n = fread(buf, 1, 8191, f);
+    buf[n] = '\0';
+    fclose(f);
+    return buf;
+}
+
+/* Atomically replace the config file (write a temp file, rename), as editors do. */
+static void write_config(const char *path, const char *text)
+{
+    char tmp[600];
+    snprintf(tmp, sizeof tmp, "%s.tmp", path);
+    FILE *f = fopen(tmp, "w");
+    if (!f) {
+        fail("cannot write the new config");
+    }
+    fputs(text, f);
+    fclose(f);
+    if (rename(tmp, path) != 0) {
+        fail("cannot replace the config file");
+    }
+}
+
+/* ------------------------------------------------------- scenario: single */
+
+static void run_input_tests(struct app *app, struct wl_display *d)
+{
+    app->ext_w = app->out_w;
+    app->ext_h = app->out_h;
+    setup_virtual_devices(app, d);
+
+    /* [keyboard] repeat_rate/repeat_delay from the config reach the client */
+    if (app->kb_rate != 33 || app->kb_delay != 250) {
+        char msg[100];
+        snprintf(msg, sizeof msg, "repeat_info is %d/%d, config says 33/250", app->kb_rate,
+                 app->kb_delay);
+        fail(msg);
+    }
 
     /* 1. keyboard: a plain key reaches the focused window */
     vtap(app, d, 0, KEY_A);
     if (!app->key_presses[KEY_A]) {
         fail("plain key press was not delivered to the focused window");
     }
+
+    /* 1b. Alt+Return spawns the configured terminal (the script checks the side effect) */
+    vtap(app, d, MOD_ALT, KEY_ENTER);
 
     /* 2. Alt+f / Alt+F11 are handled by the compositor and not forwarded */
     vtap(app, d, MOD_ALT, KEY_F);
@@ -516,6 +750,31 @@ static void run_input_tests(struct app *app, struct wl_display *d)
     alt_drag(app, d, BTN_RIGHT, rx, ry, rx + 50, ry + 30);
     expect_configure(app, d, 0, 0, W + 50, H + 30, "Alt+right-drag resizes by the drag distance");
 
+    /* 6b. snapping to another window: the first window is now at (8,100) with a 200x100
+     * geometry, so its right edge plus the gap is x=216. Open a second window, drag it to
+     * x=222 (within the snap distance) next to the first one and it must snap to 216. */
+    {
+        struct win b;
+        win_open(app, d, &b, "sfwc-test-window-2", 0xffc09030);
+        double bx = 250, by = 90; /* inside the new window (cascaded to ~80,80), outside the first */
+        app->ptr_enter = 0;
+        vptr_move(app, d, bx, by);
+        if (!app->ptr_enter) {
+            fail("pointer did not enter the second window");
+        }
+        double blx = app->ptr_sx, bly = app->ptr_sy;
+        double box = bx - blx, boy = by - bly; /* origin of the second window */
+        double want_x = GAP + W + GAP + 6;     /* 6px away from the snap position */
+        double want_y = 130;                   /* overlaps the first window vertically */
+        double ex = bx + (want_x - box), ey = by + (want_y - boy);
+        alt_drag(app, d, BTN_LEFT, bx, by, ex, ey);
+        vptr_move(app, d, ex + 1, ey + 1);
+        double snapped_x = GAP + W + GAP;
+        check_near(app->ptr_sx, (ex + 1) - snapped_x, 3, "x after snapping next to another window");
+        check_near(app->ptr_sy, (ey + 1) - want_y, 3, "y after snapping next to another window");
+        win_destroy(d, &b);
+    }
+
     /* 7. minimize and restore with the keyboard; keyboard focus follows */
     int leaves = app->kb_leave, enters = app->kb_enter;
     vtap(app, d, MOD_ALT, KEY_M);
@@ -533,19 +792,8 @@ static void run_input_tests(struct app *app, struct wl_display *d)
     if (!cfg_path) {
         fail("SFWC_CONFIG is not set (run through tests/run_client_test.sh)");
     }
-    char tmp_path[600];
-    snprintf(tmp_path, sizeof tmp_path, "%s.tmp", cfg_path);
-    FILE *cf = fopen(tmp_path, "w");
-    if (!cf) {
-        fail("cannot write the new config");
-    }
-    fputs("[general]\nmod = Ctrl\n[windows]\ngap = 20\n[keybinds]\n"
-          "$mod+x = toggle-maximize\n$mod+q = close\n",
-          cf);
-    fclose(cf);
-    if (rename(tmp_path, cfg_path) != 0) {
-        fail("cannot replace the config file");
-    }
+    write_config(cfg_path, "[general]\nmod = Ctrl\n[windows]\ngap = 20\n[keybinds]\n"
+                           "$mod+x = toggle-maximize\n$mod+q = close\n");
     /* the compositor notices asynchronously: retry until the new binding works */
     app->cfg_max = 0;
     for (int i = 0; i < 40 && !app->cfg_max; i++) {
@@ -556,6 +804,9 @@ static void run_input_tests(struct app *app, struct wl_display *d)
     }
     expect_configure(app, d, 1, 0, app->out_w - 40, app->out_h - 40,
                      "Ctrl+x maximizes with the reloaded gap of 20");
+    if (app->kb_rate != 25 || app->kb_delay != 600) {
+        fail("reload did not re-apply the keyboard repeat settings (expected defaults 25/600)");
+    }
     vtap(app, d, MOD_CTRL, KEY_X);
     expect_configure(app, d, 0, 0, W, H, "Ctrl+x again restores");
     int f_before = app->key_presses[KEY_F];
@@ -566,12 +817,139 @@ static void run_input_tests(struct app *app, struct wl_display *d)
 
     /* 8. the reloaded close binding (Ctrl+q) asks the window to close */
     vtap(app, d, MOD_CTRL, KEY_Q);
-    wait_for(d, &app->closed, 3000, "xdg_toplevel.close after Alt+q");
+    wait_for(d, &app->closed, 3000, "xdg_toplevel.close after Ctrl+q");
+}
+
+/* -------------------------------------------------------- scenario: multi */
+
+static struct out_info *find_out(struct app *app, const char *name)
+{
+    for (int i = 0; i < app->n_outs; i++) {
+        if (!strcmp(app->outs[i].name, name)) {
+            return &app->outs[i];
+        }
+    }
+    char msg[100];
+    snprintf(msg, sizeof msg, "output %s not announced by the compositor", name);
+    fail(msg);
+    return NULL;
+}
+
+static void check_out(const struct out_info *o, int mw, int mh, int scale, int lx, int ly, int lw,
+                      int lh)
+{
+    if (o->mw != mw || o->mh != mh || o->scale != scale || o->lx != lx || o->ly != ly ||
+        o->lw != lw || o->lh != lh) {
+        char msg[300];
+        snprintf(msg, sizeof msg,
+                 "%s: mode %dx%d scale %d logical %d,%d %dx%d; expected mode %dx%d scale %d logical "
+                 "%d,%d %dx%d",
+                 o->name, o->mw, o->mh, o->scale, o->lx, o->ly, o->lw, o->lh, mw, mh, scale, lx, ly,
+                 lw, lh);
+        fail(msg);
+    }
+}
+
+static void run_multi(struct app *app, struct wl_display *d)
+{
+    /* outputs: HEADLESS-1 1280x720 at 0,0; HEADLESS-2 1024x600 with scale 2 (logical 512x300)
+     * moved to 0,720 by the config */
+    if (app->n_outs != 2) {
+        fail("expected two outputs");
+    }
+    check_out(find_out(app, "HEADLESS-1"), 1280, 720, 1, 0, 0, 1280, 720);
+    check_out(find_out(app, "HEADLESS-2"), 1024, 600, 2, 0, 720, 512, 300);
+    app->ext_w = 1280;
+    app->ext_h = 720 + 300;
+
+    /* window A opens on the first output (pointer starts at 0,0) */
+    struct win a, b;
+    win_open(app, d, &a, "sfwc-multi-A", 0xff3050c0);
+    setup_virtual_devices(app, d);
+    if (app->kb_rate != 40 || app->kb_delay != 300) {
+        fail("repeat_info does not match the [keyboard] config (40/300)");
+    }
+    vtap(app, d, MOD_ALT, KEY_F);
+    win_expect(&a, d, 1, 0, 1280 - 2 * GAP, 720 - 2 * GAP, "A maximizes on the first output");
+    vtap(app, d, MOD_ALT, KEY_F);
+    win_expect(&a, d, 0, 0, W, H, "A restores");
+
+    /* a window opened while the pointer is on the second output lands there; maximizing it
+     * uses that output's logical (scaled) size */
+    vptr_move(app, d, 100, 800);
+    win_open(app, d, &b, "sfwc-multi-B", 0xffc03050);
+    if (app->kb_surface != b.surface) {
+        fail("new window B did not get keyboard focus");
+    }
+    vtap(app, d, MOD_ALT, KEY_F);
+    win_expect(&b, d, 1, 0, 512 - 2 * GAP, 300 - 2 * GAP, "B maximizes to the second output");
+    vtap(app, d, MOD_ALT, KEY_F);
+    win_expect(&b, d, 0, 0, W, H, "B restores");
+
+    /* focus = follow-mouse: keyboard focus follows the pointer between the two outputs */
+    vptr_move(app, d, 60, 60); /* over A (48,48) */
+    if (app->kb_surface != a.surface) {
+        fail("follow-mouse: pointer over A did not focus A");
+    }
+    vptr_move(app, d, 100, 820); /* over B (80,800) */
+    if (app->kb_surface != b.surface) {
+        fail("follow-mouse: pointer over B did not focus B");
+    }
+
+    /* move-to-next-output (Alt+o): B goes to the first output, maximizes there, and a second
+     * Alt+o refits it on the second output */
+    vtap(app, d, MOD_ALT, KEY_O);
+    vtap(app, d, MOD_ALT, KEY_F);
+    win_expect(&b, d, 1, 0, 1280 - 2 * GAP, 720 - 2 * GAP, "B moved to the first output");
+    vtap(app, d, MOD_ALT, KEY_O);
+    win_expect(&b, d, 1, 0, 512 - 2 * GAP, 300 - 2 * GAP, "maximized B refits on the second output");
+    vtap(app, d, MOD_ALT, KEY_F);
+    win_expect(&b, d, 0, 0, W, H, "B restores on the second output");
+
+    /* focus-next-output (Alt+Shift+o): the pointer is on the second output, so focus goes
+     * to the top window of the first output (A), and then back to B */
+    vtap(app, d, MOD_ALT | MOD_SHIFT, KEY_O);
+    if (app->kb_surface != a.surface) {
+        fail("focus-next-output did not focus the window on the first output (A)");
+    }
+    vtap(app, d, MOD_ALT | MOD_SHIFT, KEY_O);
+    if (app->kb_surface != b.surface) {
+        fail("focus-next-output did not focus the window on the second output (B)");
+    }
+
+    /* reload-config key: there is no file watching in this run, so a changed file is only
+     * picked up when asked for. B is maximized to show the new gap. */
+    vtap(app, d, MOD_ALT, KEY_F);
+    win_expect(&b, d, 1, 0, 512 - 2 * GAP, 300 - 2 * GAP, "B maximized before the config change");
+    const char *cfg_path = getenv("SFWC_CONFIG");
+    if (!cfg_path) {
+        fail("SFWC_CONFIG is not set (run through tests/run_client_test.sh)");
+    }
+    char *cur = read_config(cfg_path);
+    char *next = calloc(1, strlen(cur) + 64);
+    sprintf(next, "%s\n[windows]\ngap = 20\n", cur);
+    write_config(cfg_path, next);
+    free(cur);
+    free(next);
+    win_expect_quiet(&b, d, 400, "config changed on disk but reload-config was not pressed");
+    vtap(app, d, MOD_ALT | MOD_SHIFT, KEY_R);
+    win_expect(&b, d, 1, 0, 512 - 40, 300 - 40, "reload-config key applies the new gap");
+
+    win_destroy(d, &b);
+    win_destroy(d, &a);
 }
 #endif
 
-int main(void)
+/* --------------------------------------------------------------- main */
+
+int main(int argc, char **argv)
 {
+    const char *mode = argc > 1 ? argv[1] : "single";
+    int multi = !strcmp(mode, "multi");
+    if (!multi && strcmp(mode, "single") != 0) {
+        fail("unknown mode (use single or multi)");
+    }
+
     struct app app = {0};
     struct wl_display *display = wl_display_connect(NULL);
     if (!display) {
@@ -580,12 +958,37 @@ int main(void)
     struct wl_registry *registry = wl_display_get_registry(display);
     wl_registry_add_listener(registry, &registry_listener, &app);
     wl_display_roundtrip(display);
-    wl_display_roundtrip(display); /* wl_output mode events */
-    if (!app.compositor || !app.shm || !app.wm_base || !app.output) {
-        fail("compositor is missing wl_compositor / wl_shm / xdg_wm_base / wl_output");
+    if (!app.compositor || !app.shm || !app.wm_base || !app.output || !app.xdg_out_mgr) {
+        fail("compositor is missing wl_compositor / wl_shm / xdg_wm_base / wl_output / "
+             "zxdg_output_manager_v1");
     }
+    for (int i = 0; i < app.n_outs; i++) {
+        app.outs[i].xdg = zxdg_output_manager_v1_get_xdg_output(app.xdg_out_mgr, app.outs[i].wl);
+        zxdg_output_v1_add_listener(app.outs[i].xdg, &xdg_output_listener, &app.outs[i]);
+    }
+    wl_display_roundtrip(display); /* wl_output mode/scale + xdg_output events */
+    wl_display_roundtrip(display);
     if (app.out_w <= 0 || app.out_h <= 0) {
         fail("no output mode received");
+    }
+
+    if (multi) {
+#ifdef HAVE_VIRTUAL_INPUT
+        run_multi(&app, display);
+        wl_display_disconnect(display);
+        printf("client_test multi: OK\n");
+        return 0;
+#else
+        fail("the multi scenario needs the virtual input protocols");
+#endif
+    }
+
+    /* xdg_output must agree with wl_output for the single-output setup */
+    {
+        const struct out_info *o = &app.outs[0];
+        if (o->lw != app.out_w || o->lh != app.out_h || o->lx != 0 || o->ly != 0 || !o->name[0]) {
+            fail("xdg_output logical geometry/name does not match the output");
+        }
     }
 
     /* Toplevel window */

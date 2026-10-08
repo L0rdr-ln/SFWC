@@ -233,6 +233,20 @@ static struct toplevel *top_visible(struct server *server)
     return NULL;
 }
 
+/* The window with keyboard focus (the front window when nothing is focused). With
+ * focus=follow-mouse this is not necessarily the front window. */
+static struct toplevel *focused_visible(struct server *server)
+{
+    struct wlr_surface *focus = server->seat->keyboard_state.focused_surface;
+    struct toplevel *t;
+    wl_list_for_each(t, &server->toplevels, link) {
+        if (!t->minimized && t->xdg_toplevel->base->surface == focus) {
+            return t;
+        }
+    }
+    return top_visible(server);
+}
+
 /* Apply maximized/fullscreen state; restores the saved geometry when both are off. */
 static void toplevel_apply_state(struct toplevel *t, bool max, bool fs)
 {
@@ -501,7 +515,7 @@ static void focus_next_output(struct server *server)
 
 static void dispatch_action(struct server *server, enum action action, const char *arg)
 {
-    struct toplevel *top = top_visible(server);
+    struct toplevel *top = focused_visible(server);
     switch (action) {
     case ACTION_QUIT:
         wl_display_terminate(server->display);

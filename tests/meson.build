@@ -19,7 +19,14 @@ if get_option('compositor')
     input: xdg_shell_xml,
     output: 'xdg-shell-protocol.c',
     command: [wayland_scanner, 'private-code', '@INPUT@', '@OUTPUT@'])
+  xdg_output_xml = wayland_protos.get_variable('pkgdatadir') / 'unstable/xdg-output/xdg-output-unstable-v1.xml'
   client_sources = [xdg_shell_client_h, xdg_shell_c]
+  client_sources += custom_target('xdg-output-unstable-v1-client-protocol.h',
+    input: xdg_output_xml, output: 'xdg-output-unstable-v1-client-protocol.h',
+    command: [wayland_scanner, 'client-header', '@INPUT@', '@OUTPUT@'])
+  client_sources += custom_target('xdg-output-unstable-v1-protocol.c',
+    input: xdg_output_xml, output: 'xdg-output-unstable-v1-protocol.c',
+    command: [wayland_scanner, 'private-code', '@INPUT@', '@OUTPUT@'])
   client_deps = [wayland_client]
   client_args = ['-Wno-unused-parameter']
 
@@ -50,7 +57,9 @@ if get_option('compositor')
 
   client_test = executable('client_test', 'client_test.c', client_sources,
     dependencies: client_deps, c_args: client_args)
-  test('compositor-client', find_program('bash'),
-    args: [files('run_client_test.sh'), sfwc_exe, client_test],
-    timeout: 60)
+  foreach mode : ['single', 'multi']
+    test('compositor-client-' + mode, find_program('bash'),
+      args: [files('run_client_test.sh'), sfwc_exe, client_test, mode],
+      timeout: 90)
+  endforeach
 endif
