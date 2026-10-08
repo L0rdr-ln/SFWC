@@ -9,6 +9,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "inifile.h"
+
 /* Modifier bits; identical to wlroots' WLR_MODIFIER_* (checked in main.c). */
 #define CFG_MOD_SHIFT 1u
 #define CFG_MOD_CTRL 4u
@@ -65,6 +67,7 @@ struct config {
     /* [windows] */
     bool snap_to_edges;
     bool snap_to_windows;
+    bool decorations; /* draw title bars/borders for clients that agree to server-side decorations */
     int snap_distance;
     int gap;
     /* [keyboard]; NULL strings mean the xkb default */
@@ -88,8 +91,8 @@ struct config {
     size_t n_autostart;
 };
 
-enum { CONFIG_WARNING = 0, CONFIG_ERROR = 1 };
-typedef void (*config_log_fn)(int level, int line, const char *msg, void *data);
+enum { CONFIG_WARNING = INI_WARNING, CONFIG_ERROR = INI_ERROR };
+typedef ini_log_fn config_log_fn;
 
 /* Fill `c` with the built-in defaults (also the default keybinds). */
 void config_init_defaults(struct config *c);

@@ -22,13 +22,37 @@ inih_dep = declare_dependency(
 
 xkbcommon = dependency('xkbcommon')
 
-# Config parsing, independent of wlroots so it can be unit-tested everywhere.
+# Parsers, independent of wlroots so they can be unit-tested everywhere.
+inifile_lib = static_library('sfwc_inifile', 'src/inifile.c', dependencies: inih_dep)
+inifile_dep = declare_dependency(
+  link_with: inifile_lib,
+  include_directories: include_directories('src'),
+  dependencies: inih_dep)
+
 config_lib = static_library('sfwc_config', 'src/config.c',
-  dependencies: [inih_dep, xkbcommon])
+  dependencies: [inifile_dep, xkbcommon])
 config_dep = declare_dependency(
   link_with: config_lib,
   include_directories: include_directories('src'),
-  dependencies: [inih_dep, xkbcommon])
+  dependencies: [inifile_dep, xkbcommon])
+
+theme_lib = static_library('sfwc_theme', 'src/theme.c', dependencies: inifile_dep)
+theme_dep = declare_dependency(
+  link_with: theme_lib,
+  include_directories: include_directories('src'),
+  dependencies: inifile_dep)
+
+libm = meson.get_compiler('c').find_library('m')
+cairo = dependency('cairo')
+pangocairo = dependency('pangocairo')
+fontconfig = dependency('fontconfig')
+
+deco_lib = static_library('sfwc_deco', 'src/deco.c',
+  dependencies: [theme_dep, cairo, pangocairo, libm])
+deco_dep = declare_dependency(
+  link_with: deco_lib,
+  include_directories: include_directories('src'),
+  dependencies: [theme_dep, cairo, pangocairo, libm])
 
 if get_option('compositor')
   # Uses the system wlroots 0.18 if present, otherwise builds it from
@@ -36,7 +60,7 @@ if get_option('compositor')
   wlroots = dependency('wlroots-0.18', fallback: ['wlroots', 'wlroots_dep'],
     default_options: ['examples=false'])
   wayland_server = dependency('wayland-server')
-  libm = meson.get_compiler('c').find_library('m')
+  libdrm = dependency('libdrm')
 
   # wlroots headers include xdg-shell-protocol.h, which we generate ourselves.
   wayland_scanner = find_program('wayland-scanner', native: true)
@@ -49,7 +73,7 @@ if get_option('compositor')
 
   sfwc_exe = executable('sfwc',
     'src/main.c', xdg_shell_h,
-    dependencies: [wlroots, wayland_server, xkbcommon, libm, config_dep],
+    dependencies: [wlroots, wayland_server, xkbcommon, libm, libdrm, config_dep, theme_dep, deco_dep],
     c_args: ['-Wno-unused-parameter'],
     install: true)
 

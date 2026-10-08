@@ -8,6 +8,15 @@ test_config = executable('test_config', 'test_config.c',
   c_args: ['-DSRC_ROOT="' + meson.project_source_root() + '"'])
 test('config-parser', test_config)
 
+test_theme = executable('test_theme', 'test_theme.c',
+  dependencies: theme_dep,
+  c_args: ['-DSRC_ROOT="' + meson.project_source_root() + '"'])
+test('theme-parser', test_theme)
+
+test_deco = executable('test_deco', 'test_deco.c',
+  dependencies: [deco_dep, fontconfig])
+test('decoration-rendering', test_deco)
+
 if get_option('compositor')
   # End-to-end: run sfwc headless and talk to it with a real Wayland client.
   wayland_client = dependency('wayland-client')

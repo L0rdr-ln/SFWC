@@ -10,7 +10,7 @@
 #include <strings.h>
 #include <xkbcommon/xkbcommon.h>
 
-#include "ini.h"
+#include "inifile.h"
 
 /* ----------------------------------------------------------- helpers */
 
@@ -124,6 +124,7 @@ void config_init_defaults(struct config *c)
     c->focus = FOCUS_CLICK;
     c->snap_to_edges = true;
     c->snap_to_windows = true;
+    c->decorations = true;
     c->repeat_rate = 25;
     c->repeat_delay = 600;
     c->snap_distance = 12;
@@ -459,6 +460,8 @@ static void handle_windows(struct loader *l, const char *key, const char *v)
     char tmp[24];
     if (!strcmp(key, "snap_to_edges")) {
         set_bool(l, key, v, &c->snap_to_edges);
+    } else if (!strcmp(key, "decorations")) {
+        set_bool(l, key, v, &c->decorations);
     } else if (!strcmp(key, "snap_to_windows")) {
         set_bool(l, key, v, &c->snap_to_windows);
     } else if (!strcmp(key, "snap_distance")) {
@@ -604,42 +607,7 @@ static int config_ini_cb(void *user, const char *section, const char *name, cons
 
 /* ------------------------------------------------------------ readers */
 
-struct reader {
-    FILE *fp;
-    const char *text; /* string mode */
-    size_t pos;
-    int line;
-};
-
-static char *file_reader(char *str, int num, void *stream)
-{
-    struct reader *r = stream;
-    char *res = fgets(str, num, r->fp);
-    if (res) {
-        r->line++;
-    }
-    return res;
-}
-
-static char *string_reader(char *str, int num, void *stream)
-{
-    struct reader *r = stream;
-    if (r->text[r->pos] == '\0') {
-        return NULL;
-    }
-    int i = 0;
-    while (i < num - 1 && r->text[r->pos] != '\0') {
-        str[i++] = r->text[r->pos++];
-        if (str[i - 1] == '\n') {
-            break;
-        }
-    }
-    str[i] = '\0';
-    r->line++;
-    return str;
-}
-
-static bool run(struct config *c, struct reader *r, ini_reader fn, config_log_fn log, void *data)
+static bool run(struct config *c, struct inifile_reader *r, ini_reader fn, config_log_fn log, void *data)
 {
     struct loader l = {.c = c, .log = log, .log_data = data, .line = &r->line};
     uint32_t mod_before = c->mod;
@@ -660,19 +628,19 @@ static bool run(struct config *c, struct reader *r, ini_reader fn, config_log_fn
 
 bool config_load_file(struct config *c, const char *path, config_log_fn log, void *data)
 {
-    struct reader r = {.fp = fopen(path, "r")};
+    struct inifile_reader r = {.fp = fopen(path, "r")};
     if (!r.fp) {
         return false;
     }
-    run(c, &r, file_reader, log, data);
+    run(c, &r, inifile_file_reader, log, data);
     fclose(r.fp);
     return true;
 }
 
 bool config_load_string(struct config *c, const char *text, config_log_fn log, void *data)
 {
-    struct reader r = {.text = text};
-    return run(c, &r, string_reader, log, data);
+    struct inifile_reader r = {.text = text};
+    return run(c, &r, inifile_string_reader, log, data);
 }
 
 /* ------------------------------------------------------------- lookup */

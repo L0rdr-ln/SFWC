@@ -32,6 +32,7 @@
 #include <wlr/backend.h>
 #include <wlr/backend/headless.h>
 #include <wlr/backend/multi.h>
+#include <wlr/interfaces/wlr_buffer.h>
 #include <wlr/render/allocator.h>
 #include <wlr/render/wlr_renderer.h>
 #include <wlr/types/wlr_compositor.h>
@@ -47,18 +48,27 @@
 #include <wlr/types/wlr_subcompositor.h>
 #include <wlr/types/wlr_virtual_keyboard_v1.h>
 #include <wlr/types/wlr_virtual_pointer_v1.h>
+#include <wlr/types/wlr_screencopy_v1.h>
 #include <wlr/types/wlr_xcursor_manager.h>
+#include <wlr/types/wlr_xdg_decoration_v1.h>
 #include <wlr/types/wlr_xdg_output_v1.h>
 #include <wlr/types/wlr_xdg_shell.h>
 #include <wlr/util/edges.h>
 #include <wlr/util/log.h>
+#include <cairo.h>
+#include <drm_fourcc.h>
 #include <xkbcommon/xkbcommon.h>
 
 #include "config.h"
+#include "deco.h"
+#include "theme.h"
 
 #define CASCADE_STEP 32
 
 /* config.h uses its own copy of the modifier bits; they must match wlroots. */
+_Static_assert(DECO_EDGE_TOP == WLR_EDGE_TOP && DECO_EDGE_BOTTOM == WLR_EDGE_BOTTOM &&
+                   DECO_EDGE_LEFT == WLR_EDGE_LEFT && DECO_EDGE_RIGHT == WLR_EDGE_RIGHT,
+               "edge bits differ from wlroots");
 _Static_assert(CFG_MOD_SHIFT == WLR_MODIFIER_SHIFT && CFG_MOD_CTRL == WLR_MODIFIER_CTRL &&
                    CFG_MOD_ALT == WLR_MODIFIER_ALT && CFG_MOD_LOGO == WLR_MODIFIER_LOGO,
                "modifier bits differ from wlroots");
@@ -109,6 +119,11 @@ struct server {
     int cascade; /* offset of the next new window */
 
     struct config config;
+    struct theme theme;
+    unsigned theme_gen; /* bumped when the theme changes, so frames re-render */
+    struct wlr_xdg_decoration_manager_v1 *xdg_decoration_mgr;
+    struct wl_listener new_toplevel_decoration;
+    struct wl_listener keyboard_focus_change;
     char *config_path; /* NULL: no config location, defaults only */
     char *config_name; /* basename of config_path, matched against inotify events */
     int inotify_fd;
@@ -138,6 +153,21 @@ struct toplevel {
     bool fullscreen;
     bool minimized;
     struct wlr_box saved; /* window geometry before maximize/fullscreen */
+
+    /* server-side decorations (xdg-decoration) */
+    struct wlr_xdg_toplevel_decoration_v1 *decoration;
+    struct wl_listener deco_request_mode;
+    struct wl_listener deco_destroy;
+    struct wl_listener set_title;
+    bool ssd; /* we draw this window's frame */
+    struct wlr_scene_tree *frame_tree;
+    struct wlr_scene_buffer *chrome;
+    struct wlr_scene_buffer *shadow;
+    int frame_cw, frame_ch, shadow_w, shadow_h;
+    bool frame_focused;
+    double frame_scale;
+    unsigned frame_gen, shadow_gen;
+    char *frame_title;
     struct wl_listener map;
     struct wl_listener unmap;
     struct wl_listener commit;
@@ -222,6 +252,168 @@ static struct wlr_box output_box_at(struct server *server, double x, double y)
     return box;
 }
 
+
+/* ------------------------------------------------------ window frames */
+
+/* A wlr_buffer backed by a cairo image surface (the frame is drawn in software). */
+struct cairo_buffer {
+    struct wlr_buffer base;
+    cairo_surface_t *surface;
+};
+
+static void cairo_buffer_destroy(struct wlr_buffer *buffer)
+{
+    struct cairo_buffer *cb = wl_container_of(buffer, cb, base);
+    cairo_surface_destroy(cb->surface);
+    free(cb);
+}
+
+static bool cairo_buffer_begin_data_ptr_access(struct wlr_buffer *buffer, uint32_t flags,
+                                               void **data, uint32_t *format, size_t *stride)
+{
+    struct cairo_buffer *cb = wl_container_of(buffer, cb, base);
+    if (flags & WLR_BUFFER_DATA_PTR_ACCESS_WRITE) {
+        return false;
+    }
+    *data = cairo_image_surface_get_data(cb->surface);
+    *format = DRM_FORMAT_ARGB8888;
+    *stride = cairo_image_surface_get_stride(cb->surface);
+    return true;
+}
+
+static void cairo_buffer_end_data_ptr_access(struct wlr_buffer *buffer) {}
+
+static const struct wlr_buffer_impl cairo_buffer_impl = {
+    .destroy = cairo_buffer_destroy,
+    .begin_data_ptr_access = cairo_buffer_begin_data_ptr_access,
+    .end_data_ptr_access = cairo_buffer_end_data_ptr_access,
+};
+
+/* Takes ownership of `surface`. */
+static struct wlr_buffer *cairo_buffer_create(cairo_surface_t *surface)
+{
+    struct cairo_buffer *cb = calloc(1, sizeof(*cb));
+    wlr_buffer_init(&cb->base, &cairo_buffer_impl, cairo_image_surface_get_width(surface),
+                    cairo_image_surface_get_height(surface));
+    cb->surface = surface;
+    return &cb->base;
+}
+
+static void set_scene_buffer_from_surface(struct wlr_scene_buffer *node, cairo_surface_t *surface)
+{
+    struct wlr_buffer *buffer = cairo_buffer_create(surface);
+    wlr_scene_buffer_set_buffer(node, buffer);
+    wlr_buffer_drop(buffer); /* the scene node holds its own lock */
+}
+
+/* The shadow must not catch pointer input. */
+static bool no_input(struct wlr_scene_buffer *buffer, double *sx, double *sy)
+{
+    return false;
+}
+
+static struct deco_insets toplevel_insets(struct toplevel *t)
+{
+    struct deco_insets none = {0};
+    if (!t->ssd || t->fullscreen) {
+        return none;
+    }
+    return deco_insets(&t->server->theme);
+}
+
+/* Window geometry including the server-side frame, in layout coordinates. */
+static struct wlr_box toplevel_outer(struct toplevel *t)
+{
+    struct wlr_box g = toplevel_geometry(t);
+    struct deco_insets in = toplevel_insets(t);
+    return (struct wlr_box){g.x - in.left, g.y - in.top, g.width + in.left + in.right,
+                            g.height + in.top + in.bottom};
+}
+
+static double frame_scale(struct server *server)
+{
+    double scale = 1;
+    struct output *o;
+    wl_list_for_each(o, &server->outputs, link) {
+        if (o->wlr_output->scale > scale) {
+            scale = o->wlr_output->scale;
+        }
+    }
+    return ceil(scale);
+}
+
+static void frame_destroy(struct toplevel *t)
+{
+    if (t->frame_tree) {
+        wlr_scene_node_destroy(&t->frame_tree->node);
+        t->frame_tree = NULL;
+        t->chrome = t->shadow = NULL;
+    }
+    free(t->frame_title);
+    t->frame_title = NULL;
+}
+
+/* (Re)create the frame for the current size, focus, title and theme; no-ops when nothing
+ * changed. Removes the frame when the window is not server-side decorated or fullscreen. */
+static void frame_refresh(struct toplevel *t)
+{
+    struct server *server = t->server;
+    if (!t->ssd || t->fullscreen || !t->xdg_toplevel->base->surface->mapped) {
+        frame_destroy(t);
+        return;
+    }
+    const struct theme *theme = &server->theme;
+    struct wlr_box geo;
+    wlr_xdg_surface_get_geometry(t->xdg_toplevel->base, &geo);
+    if (geo.width <= 0 || geo.height <= 0) {
+        return;
+    }
+    bool focused = server->seat->keyboard_state.focused_surface == t->xdg_toplevel->base->surface;
+    double scale = frame_scale(server);
+    const char *title = t->xdg_toplevel->title ? t->xdg_toplevel->title : "";
+
+    if (!t->frame_tree) {
+        t->frame_tree = wlr_scene_tree_create(t->scene_tree);
+        t->shadow = wlr_scene_buffer_create(t->frame_tree, NULL);
+        t->shadow->point_accepts_input = no_input;
+        t->chrome = wlr_scene_buffer_create(t->frame_tree, NULL);
+        wlr_scene_node_lower_to_bottom(&t->frame_tree->node); /* behind the client surface */
+        t->frame_cw = t->frame_ch = 0;
+    }
+    struct deco_insets in = deco_insets(theme);
+    int ow = geo.width + in.left + in.right, oh = geo.height + in.top + in.bottom;
+
+    bool title_changed = !t->frame_title || strcmp(t->frame_title, title) != 0;
+    if (t->frame_cw != geo.width || t->frame_ch != geo.height || t->frame_focused != focused ||
+        t->frame_scale != scale || t->frame_gen != server->theme_gen || title_changed) {
+        cairo_surface_t *surf = deco_render_chrome(theme, geo.width, geo.height, focused, title, scale);
+        set_scene_buffer_from_surface(t->chrome, surf);
+        wlr_scene_buffer_set_dest_size(t->chrome, ow, oh);
+        wlr_scene_node_set_position(&t->chrome->node, -in.left, -in.top);
+        free(t->frame_title);
+        t->frame_title = strdup(title);
+    }
+
+    int R = theme->shadow_radius;
+    wlr_scene_node_set_enabled(&t->shadow->node, theme->shadow_enabled && R > 0);
+    if (theme->shadow_enabled && R > 0 &&
+        (t->shadow_w != ow || t->shadow_h != oh || t->shadow_gen != server->theme_gen)) {
+        cairo_surface_t *surf = deco_render_shadow(theme, ow, oh, 4);
+        set_scene_buffer_from_surface(t->shadow, surf);
+        wlr_scene_buffer_set_dest_size(t->shadow, ow + 2 * R, oh + 2 * R);
+        wlr_scene_node_set_position(&t->shadow->node, -in.left - R,
+                                    -in.top - R + theme->shadow_offset_y);
+        t->shadow_w = ow;
+        t->shadow_h = oh;
+        t->shadow_gen = server->theme_gen;
+    }
+    t->frame_cw = geo.width;
+    t->frame_ch = geo.height;
+    t->frame_focused = focused;
+    t->frame_scale = scale;
+    t->frame_gen = server->theme_gen;
+}
+
 static struct toplevel *top_visible(struct server *server)
 {
     struct toplevel *t;
@@ -259,6 +451,8 @@ static void toplevel_apply_state(struct toplevel *t, bool max, bool fs)
     t->fullscreen = fs;
     wlr_xdg_toplevel_set_maximized(t->xdg_toplevel, max);
     wlr_xdg_toplevel_set_fullscreen(t->xdg_toplevel, fs);
+    frame_refresh(t); /* fullscreen windows lose their frame */
+    struct deco_insets ins = toplevel_insets(t);
 
     struct wlr_box box = output_box_at(t->server, ref.x + ref.width / 2.0, ref.y + ref.height / 2.0);
     wlr_log(WLR_DEBUG, "apply state max=%d fs=%d, output box %d,%d %dx%d (window centre %.0f,%.0f)",
@@ -266,8 +460,9 @@ static void toplevel_apply_state(struct toplevel *t, bool max, bool fs)
             ref.y + ref.height / 2.0);
     if ((fs || max) && box.width > 0) {
         int inset = fs ? 0 : t->server->config.gap;
-        toplevel_move_to(t, box.x + inset, box.y + inset);
-        wlr_xdg_toplevel_set_size(t->xdg_toplevel, box.width - 2 * inset, box.height - 2 * inset);
+        toplevel_move_to(t, box.x + inset + ins.left, box.y + inset + ins.top);
+        wlr_xdg_toplevel_set_size(t->xdg_toplevel, box.width - 2 * inset - ins.left - ins.right,
+                                  box.height - 2 * inset - ins.top - ins.bottom);
     } else if (!fs && !max) {
         toplevel_move_to(t, t->saved.x, t->saved.y);
         wlr_xdg_toplevel_set_size(t->xdg_toplevel, t->saved.width, t->saved.height);
@@ -285,7 +480,8 @@ static void place_new_toplevel(struct toplevel *t)
     if (box.width <= 0) {
         return;
     }
-    struct wlr_box geo = toplevel_geometry(t);
+    struct wlr_box geo = toplevel_outer(t); /* including the frame */
+    struct deco_insets ins = toplevel_insets(t);
     int x, y;
     if (t->xdg_toplevel->parent) { /* dialog: center */
         x = box.x + (box.width - geo.width) / 2;
@@ -310,7 +506,7 @@ static void place_new_toplevel(struct toplevel *t)
     if (y < box.y + gap) {
         y = box.y + gap;
     }
-    toplevel_move_to(t, x, y);
+    toplevel_move_to(t, x + ins.left, y + ins.top);
 }
 
 /* -------------------------------------------------------------- focusing */
@@ -473,8 +669,15 @@ static void move_to_next_output(struct toplevel *t)
         return;
     }
     bool fitted = t->maximized || t->fullscreen;
-    struct wlr_box now = toplevel_geometry(t);
-    struct wlr_box ref = fitted ? t->saved : now;
+    struct deco_insets ins = toplevel_insets(t);
+    struct wlr_box now = toplevel_outer(t);
+    /* the geometry the window will have again when it is not fitted, as an outer rectangle */
+    struct wlr_box ref = now;
+    if (fitted) {
+        ref = (struct wlr_box){t->saved.x - ins.left, t->saved.y - ins.top,
+                               t->saved.width + ins.left + ins.right,
+                               t->saved.height + ins.top + ins.bottom};
+    }
     size_t cur = output_index_at(obs, n, now.x + now.width / 2.0, now.y + now.height / 2.0);
     const struct wlr_box *cb = &obs[cur].box;
     const struct wlr_box *nb = &obs[(cur + 1) % n].box;
@@ -482,11 +685,11 @@ static void move_to_next_output(struct toplevel *t)
     int y = nb->y + (ref.y - cb->y);
     clamp_into(nb, server->config.gap, ref.width, ref.height, &x, &y);
     if (fitted) { /* re-fit on the new output through the saved geometry */
-        t->saved.x = x;
-        t->saved.y = y;
+        t->saved.x = x + ins.left;
+        t->saved.y = y + ins.top;
         toplevel_apply_state(t, t->maximized, t->fullscreen);
     } else {
-        toplevel_move_to(t, x, y);
+        toplevel_move_to(t, x + ins.left, y + ins.top);
     }
 }
 
@@ -765,26 +968,64 @@ static void seat_request_set_selection(struct wl_listener *listener, void *data)
 
 /* --------------------------------------------------------------- cursor */
 
+/* The window under (lx, ly). When the point is on a client surface, *surface is set and
+ * *part is DECO_CLIENT; when it is on a server-side frame, *surface stays NULL and *part
+ * (and *edges for resize zones) say which part of the frame it is. */
 static struct toplevel *toplevel_at(struct server *server, double lx, double ly,
-                                    struct wlr_surface **surface, double *sx, double *sy)
+                                    struct wlr_surface **surface, double *sx, double *sy,
+                                    enum deco_part *part, uint32_t *edges)
 {
+    *part = DECO_OUTSIDE;
+    *edges = 0;
     struct wlr_scene_node *node = wlr_scene_node_at(&server->scene->tree.node, lx, ly, sx, sy);
     if (node == NULL || node->type != WLR_SCENE_NODE_BUFFER) {
         return NULL;
     }
     struct wlr_scene_buffer *scene_buffer = wlr_scene_buffer_from_node(node);
     struct wlr_scene_surface *scene_surface = wlr_scene_surface_try_from_buffer(scene_buffer);
-    if (!scene_surface) {
-        return NULL;
-    }
-    *surface = scene_surface->surface;
 
     /* Walk up to the tree that belongs to a toplevel. */
     struct wlr_scene_tree *tree = node->parent;
     while (tree != NULL && tree->node.data == NULL) {
         tree = tree->node.parent;
     }
-    return tree ? tree->node.data : NULL;
+    struct toplevel *toplevel = tree ? tree->node.data : NULL;
+
+    if (scene_surface) {
+        *surface = scene_surface->surface;
+        *part = DECO_CLIENT;
+        return toplevel;
+    }
+    if (toplevel && toplevel->chrome && node == &toplevel->chrome->node) {
+        struct wlr_box g = toplevel_geometry(toplevel);
+        *part = deco_hit_test(&server->theme, g.width, g.height, lx - g.x, ly - g.y, edges);
+        return *part == DECO_OUTSIDE ? NULL : toplevel;
+    }
+    return NULL;
+}
+
+static const char *resize_cursor_name(uint32_t edges)
+{
+    switch (edges) {
+    case WLR_EDGE_TOP:
+        return "n-resize";
+    case WLR_EDGE_BOTTOM:
+        return "s-resize";
+    case WLR_EDGE_LEFT:
+        return "w-resize";
+    case WLR_EDGE_RIGHT:
+        return "e-resize";
+    case WLR_EDGE_TOP | WLR_EDGE_LEFT:
+        return "nw-resize";
+    case WLR_EDGE_TOP | WLR_EDGE_RIGHT:
+        return "ne-resize";
+    case WLR_EDGE_BOTTOM | WLR_EDGE_LEFT:
+        return "sw-resize";
+    case WLR_EDGE_BOTTOM | WLR_EDGE_RIGHT:
+        return "se-resize";
+    default:
+        return "default";
+    }
 }
 
 static void reset_cursor_mode(struct server *server)
@@ -793,16 +1034,17 @@ static void reset_cursor_mode(struct server *server)
     server->grabbed_toplevel = NULL;
 }
 
-static void begin_interactive(struct toplevel *toplevel, enum cursor_mode mode, uint32_t edges)
+static void begin_interactive(struct toplevel *toplevel, enum cursor_mode mode, uint32_t edges,
+                              bool check_focus)
 {
     struct server *server = toplevel->server;
     struct wlr_surface *focused = server->seat->pointer_state.focused_surface;
     if (toplevel->maximized || toplevel->fullscreen) {
         return; /* un-maximize first */
     }
-    if (focused == NULL ||
-        toplevel->xdg_toplevel->base->surface != wlr_surface_get_root_surface(focused)) {
-        return; /* only the window under the pointer may start a grab */
+    if (check_focus && (focused == NULL || toplevel->xdg_toplevel->base->surface !=
+                                               wlr_surface_get_root_surface(focused))) {
+        return; /* a client may only start a grab while the pointer is over its window */
     }
     server->grabbed_toplevel = toplevel;
     server->cursor_mode = mode;
@@ -847,15 +1089,18 @@ static void process_cursor_move(struct server *server)
     struct wlr_box geo = {0};
     wlr_xdg_surface_get_geometry(toplevel->xdg_toplevel->base, &geo);
     const struct config *cfg = &server->config;
-    double x = nx + geo.x, y = ny + geo.y;
+    struct deco_insets ins = toplevel_insets(toplevel);
+    /* work on the outer rectangle (content plus frame) */
+    double x = nx + geo.x - ins.left, y = ny + geo.y - ins.top;
+    int w = geo.width + ins.left + ins.right, h = geo.height + ins.top + ins.bottom;
     double snap = cfg->snap_distance, gap = cfg->gap;
     double best_x = snap, best_y = snap, tx = x, ty = y;
     struct wlr_box box = output_box_at(server, server->cursor->x, server->cursor->y);
     if (box.width > 0 && cfg->snap_to_edges) {
         try_snap(x, box.x + gap, &best_x, &tx);
-        try_snap(x, box.x + box.width - gap - geo.width, &best_x, &tx);
+        try_snap(x, box.x + box.width - gap - w, &best_x, &tx);
         try_snap(y, box.y + gap, &best_y, &ty);
-        try_snap(y, box.y + box.height - gap - geo.height, &best_y, &ty);
+        try_snap(y, box.y + box.height - gap - h, &best_y, &ty);
     }
     if (cfg->snap_to_windows) {
         struct toplevel *o;
@@ -863,21 +1108,21 @@ static void process_cursor_move(struct server *server)
             if (o == toplevel || o->minimized) {
                 continue;
             }
-            struct wlr_box og = toplevel_geometry(o);
-            bool overlap_y = y < og.y + og.height + snap && y + geo.height > og.y - snap;
-            bool overlap_x = x < og.x + og.width + snap && x + geo.width > og.x - snap;
+            struct wlr_box og = toplevel_outer(o);
+            bool overlap_y = y < og.y + og.height + snap && y + h > og.y - snap;
+            bool overlap_x = x < og.x + og.width + snap && x + w > og.x - snap;
             if (overlap_y) {
                 try_snap(x, og.x + og.width + gap, &best_x, &tx);
-                try_snap(x, og.x - gap - geo.width, &best_x, &tx);
+                try_snap(x, og.x - gap - w, &best_x, &tx);
             }
             if (overlap_x) {
                 try_snap(y, og.y + og.height + gap, &best_y, &ty);
-                try_snap(y, og.y - gap - geo.height, &best_y, &ty);
+                try_snap(y, og.y - gap - h, &best_y, &ty);
             }
         }
     }
-    nx = tx - geo.x;
-    ny = ty - geo.y;
+    nx = tx + ins.left - geo.x;
+    ny = ty + ins.top - geo.y;
     wlr_scene_node_set_position(&toplevel->scene_tree->node, nx, ny);
 }
 
@@ -933,12 +1178,20 @@ static void process_cursor_motion(struct server *server, uint32_t time)
     double sx, sy;
     struct wlr_seat *seat = server->seat;
     struct wlr_surface *surface = NULL;
-    struct toplevel *toplevel =
-        toplevel_at(server, server->cursor->x, server->cursor->y, &surface, &sx, &sy);
+    enum deco_part part;
+    uint32_t edges;
+    struct toplevel *toplevel = toplevel_at(server, server->cursor->x, server->cursor->y, &surface,
+                                            &sx, &sy, &part, &edges);
     if (!toplevel) {
         wlr_cursor_set_xcursor(server->cursor, server->cursor_mgr, "default");
-    } else if (server->config.focus == FOCUS_FOLLOW_MOUSE) {
-        focus_toplevel_ex(toplevel, false); /* focus without raising */
+    } else {
+        if (!surface) { /* over a server-side frame: resize cursors on the edges */
+            wlr_cursor_set_xcursor(server->cursor, server->cursor_mgr,
+                                   part == DECO_BORDER ? resize_cursor_name(edges) : "default");
+        }
+        if (server->config.focus == FOCUS_FOLLOW_MOUSE) {
+            focus_toplevel_ex(toplevel, false); /* focus without raising */
+        }
     }
     if (surface) {
         wlr_seat_pointer_notify_enter(seat, surface, sx, sy);
@@ -977,8 +1230,10 @@ static void cursor_button(struct wl_listener *listener, void *data)
 
     double sx, sy;
     struct wlr_surface *surface = NULL;
-    struct toplevel *toplevel =
-        toplevel_at(server, server->cursor->x, server->cursor->y, &surface, &sx, &sy);
+    enum deco_part part;
+    uint32_t hit_edges;
+    struct toplevel *toplevel = toplevel_at(server, server->cursor->x, server->cursor->y, &surface,
+                                            &sx, &sy, &part, &hit_edges);
     focus_toplevel(toplevel); /* click to focus + raise */
 
     struct wlr_keyboard *keyboard = wlr_seat_get_keyboard(server->seat);
@@ -987,13 +1242,49 @@ static void cursor_button(struct wl_listener *listener, void *data)
     if (toplevel && mbind) {
         /* modifier+drag: do not forward the click to the client. */
         if (mbind->action == ACTION_MOVE) {
-            begin_interactive(toplevel, CURSOR_MOVE, 0);
+            begin_interactive(toplevel, CURSOR_MOVE, 0, false);
         } else {
-            struct wlr_box geo;
-            wlr_xdg_surface_get_geometry(toplevel->xdg_toplevel->base, &geo);
-            uint32_t edges = (sx < geo.width / 2.0 ? WLR_EDGE_LEFT : WLR_EDGE_RIGHT) |
-                             (sy < geo.height / 2.0 ? WLR_EDGE_TOP : WLR_EDGE_BOTTOM);
-            begin_interactive(toplevel, CURSOR_RESIZE, edges);
+            struct wlr_box g = toplevel_geometry(toplevel);
+            uint32_t edges = (server->cursor->x - g.x < g.width / 2.0 ? WLR_EDGE_LEFT : WLR_EDGE_RIGHT) |
+                             (server->cursor->y - g.y < g.height / 2.0 ? WLR_EDGE_TOP : WLR_EDGE_BOTTOM);
+            begin_interactive(toplevel, CURSOR_RESIZE, edges, false);
+        }
+        return;
+    }
+
+    if (toplevel && !surface) { /* the server-side frame */
+        if (event->button != BTN_LEFT) {
+            return;
+        }
+        static uint32_t last_click_time;
+        static struct toplevel *last_click_toplevel;
+        switch (part) {
+        case DECO_CLOSE:
+            wlr_xdg_toplevel_send_close(toplevel->xdg_toplevel);
+            break;
+        case DECO_MAXIMIZE:
+            toplevel_apply_state(toplevel, !toplevel->maximized, false);
+            break;
+        case DECO_MINIMIZE:
+            toplevel_set_minimized(toplevel, true);
+            break;
+        case DECO_TITLE:
+            if (last_click_toplevel == toplevel && event->time_msec - last_click_time < 400) {
+                toplevel_apply_state(toplevel, !toplevel->maximized, false); /* double click */
+                last_click_toplevel = NULL;
+            } else {
+                last_click_toplevel = toplevel;
+                last_click_time = event->time_msec;
+                begin_interactive(toplevel, CURSOR_MOVE, 0, false);
+            }
+            break;
+        case DECO_BORDER:
+            if (hit_edges) {
+                begin_interactive(toplevel, CURSOR_RESIZE, hit_edges, false);
+            }
+            break;
+        default:
+            break;
         }
         return;
     }
@@ -1091,6 +1382,83 @@ static void server_new_output(struct wl_listener *listener, void *data)
 
 /* ------------------------------------------------------ xdg-shell windows */
 
+/* ----------------------------------------------- server-side decorations */
+
+static struct toplevel *toplevel_from_xdg(struct wlr_xdg_toplevel *xdg)
+{
+    struct wlr_scene_tree *tree = xdg ? xdg->base->data : NULL;
+    return tree ? tree->node.data : NULL;
+}
+
+/* Answer the client's decoration request according to the config. */
+static void decoration_apply(struct toplevel *t)
+{
+    if (!t->decoration) {
+        return;
+    }
+    bool server_side = t->server->config.decorations;
+    wlr_xdg_toplevel_decoration_v1_set_mode(
+        t->decoration, server_side ? WLR_XDG_TOPLEVEL_DECORATION_V1_MODE_SERVER_SIDE
+                                   : WLR_XDG_TOPLEVEL_DECORATION_V1_MODE_CLIENT_SIDE);
+    t->ssd = server_side;
+    frame_refresh(t);
+}
+
+static void deco_handle_request_mode(struct wl_listener *listener, void *data)
+{
+    struct toplevel *t = wl_container_of(listener, t, deco_request_mode);
+    decoration_apply(t);
+}
+
+static void deco_handle_destroy(struct wl_listener *listener, void *data)
+{
+    struct toplevel *t = wl_container_of(listener, t, deco_destroy);
+    wl_list_remove(&t->deco_request_mode.link);
+    wl_list_remove(&t->deco_destroy.link);
+    t->decoration = NULL;
+    t->ssd = false;
+    frame_refresh(t);
+}
+
+static void server_new_toplevel_decoration(struct wl_listener *listener, void *data)
+{
+    struct wlr_xdg_toplevel_decoration_v1 *decoration = data;
+    struct toplevel *t = toplevel_from_xdg(decoration->toplevel);
+    if (!t) {
+        return;
+    }
+    t->decoration = decoration;
+    t->deco_request_mode.notify = deco_handle_request_mode;
+    wl_signal_add(&decoration->events.request_mode, &t->deco_request_mode);
+    t->deco_destroy.notify = deco_handle_destroy;
+    wl_signal_add(&decoration->events.destroy, &t->deco_destroy);
+    decoration_apply(t);
+}
+
+/* The frame shows whether its window has keyboard focus. */
+static void handle_keyboard_focus_change(struct wl_listener *listener, void *data)
+{
+    struct wlr_seat_keyboard_focus_change_event *event = data;
+    struct wlr_surface *surfaces[2] = {event->old_surface, event->new_surface};
+    for (int i = 0; i < 2; i++) {
+        if (!surfaces[i]) {
+            continue;
+        }
+        struct wlr_xdg_toplevel *xdg = wlr_xdg_toplevel_try_from_wlr_surface(surfaces[i]);
+        struct toplevel *t = toplevel_from_xdg(xdg);
+        if (t) {
+            frame_refresh(t);
+        }
+    }
+}
+
+static void toplevel_set_title(struct wl_listener *listener, void *data)
+{
+    struct toplevel *toplevel = wl_container_of(listener, toplevel, set_title);
+    frame_refresh(toplevel);
+}
+
+
 static void toplevel_map(struct wl_listener *listener, void *data)
 {
     struct toplevel *toplevel = wl_container_of(listener, toplevel, map);
@@ -1103,6 +1471,7 @@ static void toplevel_map(struct wl_listener *listener, void *data)
     }
     wl_list_insert(&toplevel->server->toplevels, &toplevel->link);
     focus_toplevel(toplevel);
+    frame_refresh(toplevel);
 }
 
 static void toplevel_unmap(struct wl_listener *listener, void *data)
@@ -1138,6 +1507,7 @@ static void toplevel_commit(struct wl_listener *listener, void *data)
             wlr_xdg_toplevel_set_size(toplevel->xdg_toplevel, 0, 0);
         }
     }
+    frame_refresh(toplevel); /* cheap when size, focus and title did not change */
 }
 
 static void toplevel_destroy(struct wl_listener *listener, void *data)
@@ -1152,20 +1522,26 @@ static void toplevel_destroy(struct wl_listener *listener, void *data)
     wl_list_remove(&toplevel->request_maximize.link);
     wl_list_remove(&toplevel->request_fullscreen.link);
     wl_list_remove(&toplevel->request_minimize.link);
+    wl_list_remove(&toplevel->set_title.link);
+    if (toplevel->decoration) {
+        wl_list_remove(&toplevel->deco_request_mode.link);
+        wl_list_remove(&toplevel->deco_destroy.link);
+    }
+    free(toplevel->frame_title);
     free(toplevel);
 }
 
 static void toplevel_request_move(struct wl_listener *listener, void *data)
 {
     struct toplevel *toplevel = wl_container_of(listener, toplevel, request_move);
-    begin_interactive(toplevel, CURSOR_MOVE, 0);
+    begin_interactive(toplevel, CURSOR_MOVE, 0, true);
 }
 
 static void toplevel_request_resize(struct wl_listener *listener, void *data)
 {
     struct toplevel *toplevel = wl_container_of(listener, toplevel, request_resize);
     struct wlr_xdg_toplevel_resize_event *event = data;
-    begin_interactive(toplevel, CURSOR_RESIZE, event->edges);
+    begin_interactive(toplevel, CURSOR_RESIZE, event->edges, true);
 }
 
 static void toplevel_request_maximize(struct wl_listener *listener, void *data)
@@ -1219,6 +1595,8 @@ static void server_new_xdg_toplevel(struct wl_listener *listener, void *data)
     wl_signal_add(&xdg_toplevel->events.request_maximize, &toplevel->request_maximize);
     toplevel->request_fullscreen.notify = toplevel_request_fullscreen;
     wl_signal_add(&xdg_toplevel->events.request_fullscreen, &toplevel->request_fullscreen);
+    toplevel->set_title.notify = toplevel_set_title;
+    wl_signal_add(&xdg_toplevel->events.set_title, &toplevel->set_title);
     toplevel->request_minimize.notify = toplevel_request_minimize;
     wl_signal_add(&xdg_toplevel->events.request_minimize, &toplevel->request_minimize);
 }
@@ -1269,6 +1647,55 @@ static void config_log_cb(int level, int line, const char *msg, void *data)
     }
 }
 
+struct theme_log_ctx {
+    const char *path;
+};
+
+static void theme_log_cb(int level, int line, const char *msg, void *data)
+{
+    struct theme_log_ctx *ctx = data;
+    if (level == INI_ERROR) {
+        wlr_log(WLR_ERROR, "theme %s:%d: %s", ctx->path, line, msg);
+    } else {
+        wlr_log(WLR_INFO, "theme %s:%d: warning: %s", ctx->path, line, msg);
+    }
+}
+
+/* Load the theme named in the config (the built-in default if there is no such file). */
+static void load_theme(struct server *server)
+{
+    if (server->theme.name) {
+        theme_finish(&server->theme);
+    }
+    theme_init_default(&server->theme);
+    server->theme_gen++;
+
+    char *config_dir = NULL;
+    if (server->config_path) {
+        config_dir = strdup(server->config_path);
+        char *slash = strrchr(config_dir, '/');
+        if (slash) {
+            *slash = '\0';
+        }
+    }
+    char *path = theme_find(server->config.theme, config_dir);
+    free(config_dir);
+    if (!path) {
+        if (strcmp(server->config.theme, "default") != 0) {
+            wlr_log(WLR_ERROR, "theme '%s' not found, using the built-in default theme",
+                    server->config.theme);
+        }
+        return;
+    }
+    struct theme_log_ctx ctx = {path};
+    if (theme_load_file(&server->theme, path, theme_log_cb, &ctx)) {
+        wlr_log(WLR_INFO, "theme loaded: %s", path);
+    } else {
+        wlr_log(WLR_ERROR, "cannot read theme %s, using the built-in default theme", path);
+    }
+    free(path);
+}
+
 /* Re-read the config file. A file that cannot be read keeps the current config; invalid
  * entries inside a readable file are reported and fall back to their defaults. */
 static void reload_config(struct server *server)
@@ -1315,12 +1742,16 @@ static void reload_config(struct server *server)
         }
     }
 
-    /* windows that are fitted to the output depend on the gap */
+    load_theme(server);
+
+    /* windows that are fitted to the output depend on the gap and on the frame */
     struct toplevel *t;
     wl_list_for_each(t, &server->toplevels, link) {
+        decoration_apply(t);
         if (t->maximized || t->fullscreen) {
             toplevel_apply_state(t, t->maximized, t->fullscreen);
         }
+        frame_refresh(t);
     }
 }
 
@@ -1353,6 +1784,7 @@ static void init_config(struct server *server, struct wl_event_loop *loop)
     server->config_path = config_default_path();
     if (!server->config_path) {
         wlr_log(WLR_INFO, "no HOME/XDG_CONFIG_HOME, using built-in defaults");
+        load_theme(server);
         return;
     }
     if (config_load_file(&server->config, server->config_path, config_log_cb, server)) {
@@ -1360,6 +1792,7 @@ static void init_config(struct server *server, struct wl_event_loop *loop)
     } else {
         wlr_log(WLR_INFO, "no config file at %s, using built-in defaults", server->config_path);
     }
+    load_theme(server);
 
     char *dir = strdup(server->config_path);
     char *slash = strrchr(dir, '/');
@@ -1494,6 +1927,12 @@ int main(int argc, char *argv[])
 
     server.output_layout = wlr_output_layout_create(server.display);
     wlr_xdg_output_manager_v1_create(server.display, server.output_layout);
+    wlr_screencopy_manager_v1_create(server.display);
+
+    server.xdg_decoration_mgr = wlr_xdg_decoration_manager_v1_create(server.display);
+    server.new_toplevel_decoration.notify = server_new_toplevel_decoration;
+    wl_signal_add(&server.xdg_decoration_mgr->events.new_toplevel_decoration,
+                  &server.new_toplevel_decoration);
     wl_list_init(&server.outputs);
     server.new_output.notify = server_new_output;
     wl_signal_add(&server.backend->events.new_output, &server.new_output);
@@ -1535,6 +1974,8 @@ int main(int argc, char *argv[])
     server.new_input.notify = server_new_input;
     wl_signal_add(&server.backend->events.new_input, &server.new_input);
     server.seat = wlr_seat_create(server.display, "seat0");
+    server.keyboard_focus_change.notify = handle_keyboard_focus_change;
+    wl_signal_add(&server.seat->keyboard_state.events.focus_change, &server.keyboard_focus_change);
     server.request_cursor.notify = seat_request_cursor;
     wl_signal_add(&server.seat->events.request_set_cursor, &server.request_cursor);
     server.request_set_selection.notify = seat_request_set_selection;
@@ -1590,6 +2031,8 @@ int main(int argc, char *argv[])
     wl_list_remove(&server.request_cursor.link);
     wl_list_remove(&server.request_set_selection.link);
     wl_list_remove(&server.new_output.link);
+    wl_list_remove(&server.new_toplevel_decoration.link);
+    wl_list_remove(&server.keyboard_focus_change.link);
     if (server.virtual_pointer_mgr) {
         wl_list_remove(&server.new_virtual_pointer.link);
         wl_list_remove(&server.new_virtual_keyboard.link);
@@ -1604,6 +2047,7 @@ int main(int argc, char *argv[])
     free(server.config_path);
     free(server.config_name);
     config_finish(&server.config);
+    theme_finish(&server.theme);
 
     wlr_scene_node_destroy(&server.scene->tree.node);
     wlr_xcursor_manager_destroy(server.cursor_mgr);
