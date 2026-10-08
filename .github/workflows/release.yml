@@ -1,0 +1,35 @@
+name: release
+# Pushing a tag like v0.2.0 creates a GitHub release with notes from CHANGELOG.md.
+on:
+  push:
+    tags: ['v*']
+permissions:
+  contents: write
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check the tag matches the project version
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          VER="$(sed -n "s/^ *version: '\(.*\)',/\1/p" meson.build | head -n1)"
+          [ "$TAG" = "$VER" ] || { echo "tag $TAG != meson.build version $VER"; exit 1; }
+      - name: Extract release notes
+        run: |
+          awk -v tag="$GITHUB_REF_NAME" '
+            $0 ~ "^## " tag " " { p=1; next }
+            /^## / && p { exit }
+            p { print }' CHANGELOG.md > notes.md
+          [ -s notes.md ] || { echo "no CHANGELOG.md section for $GITHUB_REF_NAME"; exit 1; }
+      - name: Create source archive
+        run: |
+          NAME="sfwc-${GITHUB_REF_NAME#v}"
+          git archive --format=tar.gz --prefix="$NAME/" -o "$NAME.tar.gz" "$GITHUB_REF_NAME"
+          sha256sum "$NAME.tar.gz" > "$NAME.tar.gz.sha256"
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" sfwc-*.tar.gz sfwc-*.tar.gz.sha256 \
+            --title "SFWC ${GITHUB_REF_NAME}" --notes-file notes.md --prerelease --verify-tag

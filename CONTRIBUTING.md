@@ -24,3 +24,12 @@ The protocol XML files are taken from the wlroots subproject; with a system
 wlroots the input part of the test is skipped (meson prints a warning).
 A test that has never failed proves little: when adding a check, break the
 expectation once and confirm it goes red.
+
+## Releases
+
+1. Move the finished milestone's entries into a new `## vX.Y.0 – date – title` section
+   of `CHANGELOG.md` and set `version:` in `meson.build` (and `themes/meson.build`).
+2. Merge/push, wait for CI to be green on that commit.
+3. `git tag -a vX.Y.0 -m "SFWC vX.Y.0" && git push origin vX.Y.0`
+   The `release` workflow checks that tag and `meson.build` agree, then publishes a
+   (pre-)release with the changelog section and a source tarball + sha256.

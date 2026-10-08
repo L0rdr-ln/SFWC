@@ -25,7 +25,7 @@ are roughly in build order; check them off as they land.
 - [x] Automated client test in CI (`tests/client_test.c`: toplevel + popup + frame
       callback against headless sfwc; checks the log and clean shutdown)
 
-## M2 – Usable floating WM  *(mostly done; window state is tested in CI)*
+## M2 – Usable floating WM  *(released as v0.2.0; window state and input are tested in CI)*
 - [x] Interactive move and resize with modifier+mouse (done in M1)
 - [x] Stacking order, cycle windows (Alt+Tab), close (Alt+q)
 - [x] Maximize (Alt+f), fullscreen (Alt+F11), minimize (Alt+m / restore Alt+Shift+m);
@@ -75,7 +75,7 @@ are roughly in build order; check them off as they land.
 ## M7 – Release
 - [ ] Xwayland
 - [ ] TTY session: `.desktop` file for display managers, seatd/logind checks
-- [ ] Man pages, packaging (Arch/AUR, Debian, Nix), tagged 0.1.0
+- [ ] Man pages, packaging (Arch/AUR, Debian, Nix), tagged 1.0.0
 
 ## Later / ideas
 - Optional tiling-assist (snap zones), window rules, per-app opacity
