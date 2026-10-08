@@ -510,6 +510,11 @@ static struct wlr_box output_box_at(struct server *server, double x, double y)
     if (!out) {
         out = wlr_output_layout_get_center_output(server->output_layout);
     }
+    if (out) {
+        wlr_output_layout_get_box(server->output_layout, out, &box);
+    }
+    return box;
+}
 
 /* The part of the output at (x, y) not covered by panels (exclusive zones of layer surfaces). */
 static struct wlr_box work_area_at(struct server *server, double x, double y)
@@ -525,11 +530,6 @@ static struct wlr_box work_area_at(struct server *server, double x, double y)
         }
     }
     return output_box_at(server, x, y);
-}
-    if (out) {
-        wlr_output_layout_get_box(server->output_layout, out, &box);
-    }
-    return box;
 }
 
 
