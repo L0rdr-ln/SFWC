@@ -31,6 +31,8 @@ jobs:
       - name: Newer meson (wlroots 0.18+ needs C23 support, meson >= 1.4)
         run: python3 -m pip install --user "meson>=1.4,<2" && echo "$HOME/.local/bin" >> "$GITHUB_PATH"
       - run: meson setup build -Dwlroots:examples=false -Dwayland:documentation=false -Dwayland:tests=false -Dwayland:dtd_validation=false -Db_sanitize=address,undefined -Db_lundef=false
+      - name: Show the xdg-shell geometry API (temporary, for the wlroots 0.20 port)
+        run: grep -n -B3 -A3 "geometry" subprojects/wlroots/include/wlr/types/wlr_xdg_shell.h
       - run: meson compile -C build
       - run: meson test -C build --print-errorlogs
       - name: Smoke test (headless backend, clean shutdown on SIGINT)
