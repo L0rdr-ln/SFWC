@@ -30,6 +30,8 @@ enum action {
     ACTION_QUIT,
     ACTION_MOVE_OUTPUT,  /* move the focused window to the next output */
     ACTION_FOCUS_OUTPUT, /* warp to the next output and focus its top window */
+    ACTION_WORKSPACE,      /* switch to workspace `arg` (1-based) */
+    ACTION_MOVE_WORKSPACE, /* send the focused window to workspace `arg` */
     ACTION_MOVE,   /* mouse only */
     ACTION_RESIZE, /* mouse only */
 };
@@ -40,7 +42,7 @@ struct keybind {
     uint32_t mods;
     uint32_t sym; /* lower-case base-level keysym */
     enum action action;
-    char *arg; /* command for ACTION_SPAWN */
+    char *arg; /* command for ACTION_SPAWN, workspace number for ACTION_*WORKSPACE */
 };
 
 struct mousebind {
@@ -63,6 +65,7 @@ struct config {
     char *theme;
     char *terminal;
     uint32_t mod; /* what $mod expands to in binds */
+    int workspaces; /* 1..9 */
     enum focus_mode focus;
     /* [windows] */
     bool snap_to_edges;

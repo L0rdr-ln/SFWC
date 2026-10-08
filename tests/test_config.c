@@ -60,7 +60,7 @@ static void test_defaults(void)
     struct config c;
     config_init_defaults(&c);
     CHECK(c.gap == 8 && c.snap_distance == 12 && c.snap_to_edges);
-    CHECK(c.n_binds == 11 && c.n_mbinds == 2 && c.n_autostart == 0);
+    CHECK(c.n_binds == 19 && c.n_mbinds == 2 && c.n_autostart == 0);
     CHECK(c.snap_to_windows && c.repeat_rate == 25 && c.repeat_delay == 600);
     const struct keybind *b = config_find_keybind(&c, CFG_MOD_ALT, XKB_KEY_q);
     CHECK(b && b->action == ACTION_CLOSE);
@@ -90,7 +90,7 @@ static void test_shipped_config(void)
         dump(&l);
     }
     CHECK(l.n == 0);
-    CHECK(c.n_binds == 11 && c.n_mbinds == 2);
+    CHECK(c.n_binds == 19 && c.n_mbinds == 2);
     const struct keybind *b = config_find_keybind(&c, CFG_MOD_ALT, XKB_KEY_Return);
     CHECK(b && b->action == ACTION_SPAWN && !strcmp(b->arg, "$terminal"));
     config_finish(&c);
@@ -262,6 +262,25 @@ static void test_keyboard_and_outputs(void)
     b = config_find_keybind(&c, CFG_MOD_ALT | CFG_MOD_SHIFT, XKB_KEY_o);
     CHECK(b && b->action == ACTION_FOCUS_OUTPUT);
     config_finish(&c);
+
+    /* workspaces */
+    config_init_defaults(&c);
+    CHECK(c.workspaces == 4);
+    b = config_find_keybind(&c, CFG_MOD_ALT, XKB_KEY_3);
+    CHECK(b && b->action == ACTION_WORKSPACE && !strcmp(b->arg, "3"));
+    b = config_find_keybind(&c, CFG_MOD_ALT | CFG_MOD_SHIFT, XKB_KEY_2);
+    CHECK(b && b->action == ACTION_MOVE_WORKSPACE && !strcmp(b->arg, "2"));
+    CHECK(config_load_string(&c, "[general]\nworkspaces = 6\n[keybinds]\nAlt+5 = workspace:5\nAlt+6 = move-to-workspace: 6\n", NULL, NULL));
+    CHECK(c.workspaces == 6);
+    b = config_find_keybind(&c, CFG_MOD_ALT, XKB_KEY_6);
+    CHECK(b && b->action == ACTION_MOVE_WORKSPACE && !strcmp(b->arg, "6"));
+    /* bad numbers are rejected, a section replaces the defaults */
+    CHECK(config_load_string(&c, "[general]\nworkspaces = 12\n", NULL, NULL));
+    CHECK(c.workspaces == 6);
+    CHECK(config_load_string(&c, "[keybinds]\nAlt+1 = workspace:0\nAlt+2 = workspace:x\nAlt+3 = workspace:10\n", NULL, NULL));
+    CHECK(!config_find_keybind(&c, CFG_MOD_ALT, XKB_KEY_1));
+    CHECK(!config_find_keybind(&c, CFG_MOD_ALT, XKB_KEY_3));
+    config_finish(&c);
 }
 
 static void test_expand(void)
@@ -283,7 +302,7 @@ static void test_missing_file(void)
     struct config c;
     config_init_defaults(&c);
     CHECK(!config_load_file(&c, "/nonexistent/sfwc.conf", NULL, NULL));
-    CHECK(c.n_binds == 11); /* defaults untouched */
+    CHECK(c.n_binds == 19); /* defaults untouched */
     config_finish(&c);
 }
 

@@ -1424,6 +1424,85 @@ static void run_anim(struct app *app, struct wl_display *d)
     free(img.px);
 }
 
+/* -------------------------------------------------- scenario: workspaces */
+
+#define C_OTHER 0xc03050
+
+static void expect_focus(struct app *app, struct wl_display *d, struct wl_surface *want, const char *what)
+{
+    wl_display_roundtrip(d);
+    wl_display_roundtrip(d);
+    if (app->kb_surface != want) {
+        char msg[160];
+        snprintf(msg, sizeof msg, "%s (keyboard focus is %s)", what,
+                 app->kb_surface ? "another window" : "nobody");
+        fail(msg);
+    }
+}
+
+static void run_workspaces(struct app *app, struct wl_display *d)
+{
+    app->ext_w = app->out_w;
+    app->ext_h = app->out_h;
+    setup_virtual_devices(app, d, 0);
+
+    /* workspace 1: window A, maximized so that one pixel tells whether it is visible */
+    struct win a, b;
+    win_open_ex(app, d, &a, "A", 0xff000000u | C_CLIENT, 0, 1);
+    expect_focus(app, d, a.surface, "window A did not get focus");
+    vtap(app, d, MOD_ALT, KEY_F);
+    win_expect(&a, d, 1, 0, 1264, 704, "A maximized");
+    wl_display_roundtrip(d);
+    struct image img = capture_screen(app, d);
+    expect_px(&img, 600, 300, C_CLIENT, "A is visible on workspace 1");
+    free(img.px);
+
+    /* workspace 2 is empty: A disappears and loses the keyboard focus */
+    vtap(app, d, MOD_ALT, KEY_2);
+    expect_focus(app, d, NULL, "switching to an empty workspace left the keyboard on A");
+    img = capture_screen(app, d);
+    expect_px(&img, 600, 300, 0x000000, "A is hidden on workspace 2");
+    free(img.px);
+
+    /* a new window opens on the current workspace */
+    win_open_ex(app, d, &b, "B", 0xff000000u | C_OTHER, 0, 1);
+    expect_focus(app, d, b.surface, "window B did not get focus on workspace 2");
+    vtap(app, d, MOD_ALT, KEY_F);
+    win_expect(&b, d, 1, 0, 1264, 704, "B maximized");
+    wl_display_roundtrip(d);
+    img = capture_screen(app, d);
+    expect_px(&img, 600, 300, C_OTHER, "B is visible on workspace 2");
+    free(img.px);
+
+    /* back to workspace 1: A is back with the focus, B is gone */
+    vtap(app, d, MOD_ALT, KEY_1);
+    expect_focus(app, d, a.surface, "A did not get the focus back on workspace 1");
+    img = capture_screen(app, d);
+    expect_px(&img, 600, 300, C_CLIENT, "A is visible again");
+    free(img.px);
+
+    /* send the focused window (A) to workspace 2: workspace 1 is empty */
+    vtap(app, d, MOD_ALT | MOD_SHIFT, KEY_2);
+    expect_focus(app, d, NULL, "moving the only window away left the keyboard on it");
+    img = capture_screen(app, d);
+    expect_px(&img, 600, 300, 0x000000, "workspace 1 is empty after moving A away");
+    free(img.px);
+    vtap(app, d, MOD_ALT, KEY_2);
+    expect_focus(app, d, a.surface, "the front window of workspace 2 has the focus");
+    img = capture_screen(app, d);
+    expect_px(&img, 600, 300, C_CLIENT, "A is in front of B on workspace 2");
+    free(img.px);
+
+    /* numbers beyond the configured workspaces are ignored */
+    vtap(app, d, MOD_ALT, KEY_9);
+    img = capture_screen(app, d);
+    expect_px(&img, 600, 300, C_CLIENT, "workspace 9 does not exist");
+    free(img.px);
+
+    win_destroy(d, &b);
+    win_destroy(d, &a);
+}
+
 /* ------------------------------------------------------- scenario: layers */
 
 struct lay {
@@ -1587,8 +1666,9 @@ int main(int argc, char **argv)
     int deco = !strcmp(mode, "deco");
     int anim = !strcmp(mode, "anim");
     int layers = !strcmp(mode, "layers");
-    if (!multi && !deco && !anim && !layers && strcmp(mode, "single") != 0) {
-        fail("unknown mode (use single, multi, deco, anim or layers)");
+    int workspaces = !strcmp(mode, "workspaces");
+    if (!multi && !deco && !anim && !layers && !workspaces && strcmp(mode, "single") != 0) {
+        fail("unknown mode (use single, multi, deco, anim, layers or workspaces)");
     }
 
     struct app app = {0};
@@ -1645,6 +1725,16 @@ int main(int argc, char **argv)
 #endif
     }
 
+    if (workspaces) {
+#ifdef HAVE_VIRTUAL_INPUT
+        run_workspaces(&app, display);
+        wl_display_disconnect(display);
+        printf("client_test workspaces: OK\n");
+        return 0;
+#else
+        fail("the workspaces scenario needs the wlroots protocol files");
+#endif
+    }
     if (layers) {
 #ifdef HAVE_VIRTUAL_INPUT
         run_layers(&app, display);

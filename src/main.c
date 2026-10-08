@@ -131,6 +131,7 @@ struct server {
     struct wlr_box grab_geobox;
     uint32_t resize_edges;
     int cascade; /* offset of the next new window */
+    int ws_current; /* 0-based index of the visible workspace */
 
     struct config config;
     struct theme theme;
@@ -174,6 +175,7 @@ struct toplevel {
     bool maximized;
     bool fullscreen;
     bool minimized;
+    int ws; /* workspace the window lives on */
     struct wlr_box saved; /* window geometry before maximize/fullscreen */
 
     /* server-side decorations (xdg-decoration) */
@@ -236,6 +238,10 @@ struct popup {
 
 static void arrange_layers(struct output *output);
 static void fth_sync(struct toplevel *t);
+static void workspace_refresh(struct server *server);
+static void reset_cursor_mode(struct server *server);
+static void process_cursor_motion(struct server *server, uint32_t time);
+static struct toplevel *toplevel_from_xdg(struct wlr_xdg_toplevel *xdg);
 static void focus_layer_surface(struct server *server, struct wlr_layer_surface_v1 *layer);
 
 struct keyboard {
@@ -720,11 +726,17 @@ static void frame_refresh(struct toplevel *t)
     t->frame_gen = server->theme_gen;
 }
 
+/* On the current workspace and not minimized. */
+static bool toplevel_shown(const struct toplevel *t)
+{
+    return !t->minimized && t->ws == t->server->ws_current;
+}
+
 static struct toplevel *top_visible(struct server *server)
 {
     struct toplevel *t;
     wl_list_for_each(t, &server->toplevels, link) {
-        if (!t->minimized) {
+        if (toplevel_shown(t)) {
             return t;
         }
     }
@@ -738,7 +750,7 @@ static struct toplevel *focused_visible(struct server *server)
     struct wlr_surface *focus = server->seat->keyboard_state.focused_surface;
     struct toplevel *t;
     wl_list_for_each(t, &server->toplevels, link) {
-        if (!t->minimized && t->xdg_toplevel->base->surface == focus) {
+        if (toplevel_shown(t) && t->xdg_toplevel->base->surface == focus) {
             return t;
         }
     }
@@ -865,7 +877,7 @@ static void toplevel_set_minimized(struct toplevel *t, bool minimize)
         return;
     }
     t->minimized = minimize;
-    wlr_scene_node_set_enabled(&t->scene_tree->node, !minimize);
+    wlr_scene_node_set_enabled(&t->scene_tree->node, !minimize && t->ws == server->ws_current);
     if (minimize) {
         wlr_log(WLR_INFO, "window minimized");
         wlr_xdg_toplevel_set_activated(t->xdg_toplevel, false);
@@ -911,11 +923,80 @@ static void fth_sync(struct toplevel *t)
                     t->server->seat->keyboard_state.focused_surface == x->base->surface);
 }
 
+/* Show the windows of the current workspace, hide the others, and hand the keyboard to the
+ * front window that is shown (or to nobody). */
+static void workspace_refresh(struct server *server)
+{
+    struct toplevel *t;
+    wl_list_for_each(t, &server->toplevels, link) {
+        wlr_scene_node_set_enabled(&t->scene_tree->node, toplevel_shown(t));
+    }
+    struct wlr_surface *focus = server->seat->keyboard_state.focused_surface;
+    struct wlr_xdg_toplevel *fx = focus ? wlr_xdg_toplevel_try_from_wlr_surface(focus) : NULL;
+    struct toplevel *ft = toplevel_from_xdg(fx);
+    if (ft && !toplevel_shown(ft)) {
+        wlr_xdg_toplevel_set_activated(ft->xdg_toplevel, false);
+        wlr_seat_keyboard_notify_clear_focus(server->seat);
+    }
+    wlr_seat_pointer_clear_focus(server->seat);
+    if (server->grabbed_toplevel && !toplevel_shown(server->grabbed_toplevel)) {
+        reset_cursor_mode(server);
+    }
+    struct toplevel *next = top_visible(server);
+    if (next) {
+        focus_toplevel(next);
+    }
+    wl_list_for_each(t, &server->toplevels, link) {
+        fth_sync(t);
+    }
+    process_cursor_motion(server, now_msec());
+}
+
+static void switch_workspace(struct server *server, int ws)
+{
+    if (ws < 0 || ws >= server->config.workspaces || ws == server->ws_current) {
+        return;
+    }
+    wlr_log(WLR_INFO, "workspace %d", ws + 1);
+    server->ws_current = ws;
+    workspace_refresh(server);
+}
+
+static void move_to_workspace(struct toplevel *t, int ws)
+{
+    struct server *server = t->server;
+    if (ws < 0 || ws >= server->config.workspaces || ws == t->ws) {
+        return;
+    }
+    wlr_log(WLR_INFO, "window moved to workspace %d", ws + 1);
+    t->ws = ws;
+    workspace_refresh(server);
+}
+
+/* After a reload that lowered the number of workspaces. */
+static void workspace_clamp(struct server *server)
+{
+    int last = server->config.workspaces - 1;
+    struct toplevel *t;
+    wl_list_for_each(t, &server->toplevels, link) {
+        if (t->ws > last) {
+            t->ws = last;
+        }
+    }
+    if (server->ws_current > last) {
+        server->ws_current = last;
+    }
+    workspace_refresh(server);
+}
+
 static void fth_request_activate(struct wl_listener *listener, void *data)
 {
     struct toplevel *t = wl_container_of(listener, t, fth_activate);
     if (!t->mapped) {
         return;
+    }
+    if (t->ws != t->server->ws_current) {
+        switch_workspace(t->server, t->ws);
     }
     if (t->minimized) {
         toplevel_set_minimized(t, false);
@@ -1180,7 +1261,7 @@ static void dispatch_action(struct server *server, enum action action, const cha
         /* Focus the bottom-most visible window, which raises it. */
         struct toplevel *t;
         wl_list_for_each_reverse(t, &server->toplevels, link) {
-            if (!t->minimized) {
+            if (toplevel_shown(t)) {
                 focus_toplevel(t);
                 break;
             }
@@ -1205,7 +1286,7 @@ static void dispatch_action(struct server *server, enum action action, const cha
     case ACTION_RESTORE: {
         struct toplevel *t;
         wl_list_for_each_reverse(t, &server->toplevels, link) {
-            if (t->minimized) {
+            if (t->minimized && t->ws == server->ws_current) {
                 toplevel_set_minimized(t, false);
                 break;
             }
@@ -1222,6 +1303,14 @@ static void dispatch_action(struct server *server, enum action action, const cha
         break;
     case ACTION_FOCUS_OUTPUT:
         focus_next_output(server);
+        break;
+    case ACTION_WORKSPACE:
+        switch_workspace(server, atoi(arg) - 1);
+        break;
+    case ACTION_MOVE_WORKSPACE:
+        if (top) {
+            move_to_workspace(top, atoi(arg) - 1);
+        }
         break;
     case ACTION_MOVE:
     case ACTION_RESIZE:
@@ -1939,6 +2028,7 @@ static void toplevel_map(struct wl_listener *listener, void *data)
             toplevel->xdg_toplevel->title ? toplevel->xdg_toplevel->title : "(none)",
             toplevel->xdg_toplevel->app_id ? toplevel->xdg_toplevel->app_id : "(none)");
     toplevel->mapped = true;
+    toplevel->ws = toplevel->server->ws_current;
     if (!toplevel->maximized && !toplevel->fullscreen) {
         place_new_toplevel(toplevel);
     }
@@ -2418,6 +2508,7 @@ static void reload_config(struct server *server)
     }
 
     load_theme(server);
+    workspace_clamp(server);
     wl_list_for_each(out, &server->outputs, link) {
         arrange_layers(out); /* output positions may have changed */
     }

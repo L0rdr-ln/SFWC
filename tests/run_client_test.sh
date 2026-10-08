@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Starts sfwc on the headless backend, runs the test client against it and checks the
 # compositor's log and side effects.
-# Usage: run_client_test.sh <sfwc> <client_test> [single|multi|nested|deco|anim|layers]
+# Usage: run_client_test.sh <sfwc> <client_test> [single|multi|nested|deco|anim|layers|workspaces]
 #   single: one output, input, snapping, live config reload, autostart, terminal
 #   multi:  two outputs (different size/scale/position), follow-mouse, output actions,
 #           reload-config key (config file watching is switched off)
@@ -43,7 +43,7 @@ exec = touch \$runtime/autostart-ran
 exec = echo "\$terminal \$theme" > \$runtime/autostart-expanded
 CONF
     ;;
-layers)
+layers|workspaces)
     : >"$SFWC_CONFIG"
     ;;
 anim)
@@ -180,6 +180,9 @@ grep -q "output .* added" "$LOG" || fail "no output was created"
 grep -q "window unmapped" "$LOG" || fail "window was never unmapped"
 
 case "$MODE" in
+workspaces)
+    grep -q "workspace 2" "$LOG" || fail "the compositor never switched workspace"
+    ;;
 layers)
     grep -q "layer surface mapped: namespace=bar" "$LOG" || fail "the panel was never mapped"
     grep -q "layer surface unmapped: namespace=launcher" "$LOG" || fail "the launcher was never unmapped"

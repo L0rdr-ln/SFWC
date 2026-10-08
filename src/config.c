@@ -55,6 +55,12 @@ const char *action_name(enum action a)
     if (a == ACTION_SPAWN) {
         return "spawn";
     }
+    if (a == ACTION_WORKSPACE) {
+        return "workspace";
+    }
+    if (a == ACTION_MOVE_WORKSPACE) {
+        return "move-to-workspace";
+    }
     for (size_t i = 0; i < sizeof action_names / sizeof *action_names; i++) {
         if (action_names[i].action == a) {
             return action_names[i].name;
@@ -121,6 +127,7 @@ void config_init_defaults(struct config *c)
     c->theme = xstrdup("default");
     c->terminal = xstrdup(term && *term ? term : "foot");
     c->mod = CFG_MOD_ALT;
+    c->workspaces = 4;
     c->focus = FOCUS_CLICK;
     c->snap_to_edges = true;
     c->snap_to_windows = true;
@@ -155,6 +162,11 @@ static void install_default_keybinds(struct config *c)
     add_keybind(c, m, "o", ACTION_MOVE_OUTPUT, NULL);
     add_keybind(c, m | CFG_MOD_SHIFT, "o", ACTION_FOCUS_OUTPUT, NULL);
     add_keybind(c, m, "Escape", ACTION_QUIT, NULL);
+    for (int i = 1; i <= 4; i++) {
+        char key[2] = {(char)('0' + i), 0};
+        add_keybind(c, m, key, ACTION_WORKSPACE, key);
+        add_keybind(c, m | CFG_MOD_SHIFT, key, ACTION_MOVE_WORKSPACE, key);
+    }
 }
 
 static void install_default_mousebinds(struct config *c)
@@ -349,6 +361,25 @@ static bool parse_action(struct loader *l, const char *value, bool mouse, enum a
         *arg = xstrdup(cmd);
         return true;
     }
+    bool ws = !strncmp(value, "workspace:", 10);
+    bool mv = !strncmp(value, "move-to-workspace:", 18);
+    if (ws || mv) {
+        const char *n = value + (ws ? 10 : 18);
+        while (isspace((unsigned char)*n)) {
+            n++;
+        }
+        if (mouse) {
+            report(l, CONFIG_ERROR, "mouse bindings only support move and resize");
+            return false;
+        }
+        if (n[0] < '1' || n[0] > '9' || n[1]) {
+            report(l, CONFIG_ERROR, "'%s' needs a workspace number from 1 to 9", ws ? "workspace:" : "move-to-workspace:");
+            return false;
+        }
+        *action = ws ? ACTION_WORKSPACE : ACTION_MOVE_WORKSPACE;
+        *arg = xstrdup(n);
+        return true;
+    }
     for (size_t i = 0; i < sizeof action_names / sizeof *action_names; i++) {
         if (!strcmp(value, action_names[i].name)) {
             bool is_mouse_action =
@@ -437,6 +468,8 @@ static void handle_general(struct loader *l, const char *key, const char *v)
         if (in_list(v, focus_values)) {
             c->focus = !strcmp(v, "follow-mouse") ? FOCUS_FOLLOW_MOUSE : FOCUS_CLICK;
         }
+    } else if (!strcmp(key, "workspaces")) {
+        set_int(l, key, v, 1, 9, &c->workspaces);
     } else if (!strcmp(key, "mod")) {
         /* validate the modifier name(s) by parsing "<mod>+x" */
         uint32_t mods;
