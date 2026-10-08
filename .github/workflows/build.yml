@@ -2,23 +2,25 @@ name: build
 on: [push, pull_request]
 jobs:
   parser-tests:
+    timeout-minutes: 10
     # Parser + shipped config/theme files, with sanitizers. No wlroots needed.
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-      - run: sudo apt-get update && sudo apt-get install -y meson ninja-build gcc pkg-config libxkbcommon-dev
+      - run: sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Dpkg::Lock::Timeout=120 update && sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Dpkg::Lock::Timeout=120 install -y meson ninja-build gcc pkg-config libxkbcommon-dev
       - run: meson setup build-test -Dcompositor=false -Db_sanitize=address,undefined -Db_lundef=false
       - run: meson test -C build-test --print-errorlogs
 
   compositor:
+    timeout-minutes: 20
     # Builds wlroots 0.18 from the subproject wrap, then sfwc with sanitizers.
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - name: Install dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y meson ninja-build pkg-config gcc git cmake \
+          sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Dpkg::Lock::Timeout=120 update
+          sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Dpkg::Lock::Timeout=120 install -y meson ninja-build pkg-config gcc git cmake \
             libwayland-dev wayland-protocols libxkbcommon-dev libpixman-1-dev \
             libdrm-dev libinput-dev libudev-dev libseat-dev libegl-dev libgles-dev \
             libgbm-dev libvulkan-dev glslang-tools hwdata libdisplay-info-dev \
