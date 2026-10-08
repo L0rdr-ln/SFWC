@@ -72,9 +72,9 @@ deco_dep = declare_dependency(
   dependencies: [theme_dep, cairo, pangocairo, libm])
 
 if get_option('compositor')
-  # Uses the system wlroots 0.18 if present, otherwise builds it from
+  # Uses the system wlroots 0.20 if present, otherwise builds it from
   # subprojects/wlroots.wrap.
-  wlroots = dependency('wlroots-0.18', fallback: ['wlroots', 'wlroots_dep'],
+  wlroots = dependency('wlroots-0.20', fallback: ['wlroots', 'wlroots_dep'],
     default_options: ['examples=false'])
   wayland_server = dependency('wayland-server')
   libdrm = dependency('libdrm')

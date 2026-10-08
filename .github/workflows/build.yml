@@ -13,7 +13,7 @@ jobs:
 
   compositor:
     timeout-minutes: 20
-    # Builds wlroots 0.18 from the subproject wrap, then sfwc with sanitizers.
+    # Builds wlroots 0.20 from the subproject wrap, then sfwc with sanitizers.
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -28,7 +28,7 @@ jobs:
             libxcb-render0-dev libxcb-xfixes0-dev libxcb-res0-dev libxcb-ewmh-dev \
             libxcb-dri3-dev libxcb-present-dev libxcb-shm0-dev libxcb-xinput-dev \
             libxcb-render-util0-dev
-      - name: Newer meson (wlroots 0.18.2 needs C23 support, meson >= 1.4)
+      - name: Newer meson (wlroots 0.18+ needs C23 support, meson >= 1.4)
         run: python3 -m pip install --user "meson>=1.4,<2" && echo "$HOME/.local/bin" >> "$GITHUB_PATH"
       - run: meson setup build -Dwlroots:examples=false -Dwayland:documentation=false -Dwayland:tests=false -Dwayland:dtd_validation=false -Db_sanitize=address,undefined -Db_lundef=false
       - run: meson compile -C build
