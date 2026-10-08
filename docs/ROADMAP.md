@@ -57,13 +57,20 @@ are roughly in build order; check them off as they land.
 - [x] `focus = follow-mouse` tested
 - Moved to M6 (needs themes): expanding individual theme values (`$theme.<key>`) in commands
 
-## M4 – Look and feel
-- [ ] Built-in fallback theme
-- [ ] Theme parser; server-side decorations (xdg-decoration), title bar, buttons
-- [ ] Title text with cairo + pango
-- [ ] Rounded corners and shadows
-- [ ] Animation engine: tweens + easing, open/close, then move/resize
-- [ ] Animations fully disable-able; respect reduced-motion setting
+## M4 – Look and feel  *(done; checked pixel by pixel in CI with screen captures)*
+- [x] Built-in fallback theme (identical to `themes/default.theme`, checked by a test)
+- [x] Theme parser (`src/theme.c`): `format = 1`, validation, line numbers, search path,
+      live reload
+- [x] Server-side decorations via `xdg-decoration`: borders, titlebar, minimize/maximize/close
+      buttons, drag to move, border/corner drag to resize, double-click to maximize
+- [x] Title text with cairo + pango
+- [x] Rounded corners and blurred shadows (on the frame; client content stays rectangular)
+- [x] Animation engine (`src/anim.c`): easing, time-based progress; open, close and move
+      animations, driven by the output frame callbacks
+- [x] Animations can be disabled (config, `SFWC_NO_ANIMATIONS=1`) and are switched off live
+- [x] `wlr-screencopy` exposed (also what the tests use to look at the screen)
+- Not possible with wlroots 0.18: scaling windows (so `fade-scale` is a fade + slide) and
+  clipping client content to rounded corners; resize animations would need the client to cooperate
 
 ## M5 – Desktop integration
 - [ ] `wlr-layer-shell` (bars, wallpaper, launcher)

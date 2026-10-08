@@ -21,6 +21,12 @@ Versions follow the roadmap milestones while the project is pre-1.0:
 - Tests: parser/config unit tests, and three end-to-end runs (single output, two outputs with
   different scale/position, nested inside another sfwc) using virtual keyboard and pointer.
 
+- Themes: loader with a built-in default, `format = 1`, search path, live reload. Window
+  decorations drawn from the theme (title bar with text, borders, buttons, rounded corners,
+  shadow) for clients that use `xdg-decoration`, with mouse interaction.
+- Animations for opening, closing and moving windows (`[animations]`), `SFWC_NO_ANIMATIONS`.
+- `wlr-screencopy` protocol; end-to-end tests compare screen captures pixel by pixel.
+
 ### Changed
 - Keybinds match the exact modifier set and the unshifted key (`Shift+m` instead of `M`).
 - Keybind actions apply to the window that has keyboard focus (was: the front window).

@@ -32,13 +32,18 @@ are safe. Booleans: `true/false/yes/no/on/off/1/0`.
 | general | `focus` | `click` (default), `follow-mouse` | follow-mouse focuses without raising |
 | general | `mod` | `Alt` (default), `Super`, `Ctrl`, `Shift` | what `$mod` means in binds; set it **before** the binds |
 | windows | `gap` | 0–200, `8` | space to screen edges when placing, maximizing, snapping |
+| windows | `decorations` | bool, `true` | draw title bars/borders (from the theme) for clients that ask for server-side decorations; `false` makes every client draw its own |
 | windows | `snap_to_edges` | bool, `true` | snap moved windows to screen edges |
 | windows | `snap_to_windows` | bool, `true` | also snap to other windows' edges, keeping `gap` between them |
 | windows | `snap_distance` | 0–200, `12` | px from an edge or window at which snapping happens |
 | keyboard | `rules model layout variant options` | xkb names, system default | keyboard layout, e.g. `layout = de`, `options = caps:escape`; an invalid layout is reported and the default is used |
 | keyboard | `repeat_rate` / `repeat_delay` | 0–1000 / 0–10000, `25` / `600` | key repeat (characters per second, ms before repeating; rate 0 = off) |
 | windows | `default_layout` | `floating` | only floating exists |
-| animations | `enabled open close move resize duration_ms easing` | see `config/sfwc.conf` | validated now, used once animations land |
+| animations | `enabled` | bool, `true` | `false` turns every animation off (reduced motion); `SFWC_NO_ANIMATIONS=1` does the same from the environment |
+| animations | `open` / `close` | `none`, `fade`, `fade-scale`, `slide` (`fade`, `fade`) | `fade-scale` is a fade with a short upward slide (10 px) and `slide` a fade with a 32 px slide, because the wlroots 0.18 scene graph cannot scale windows |
+| animations | `move` | bool, `true` | slide the window when it is moved by maximize, restore or `move-to-next-output` (dragging is always immediate) |
+| animations | `resize` | bool | accepted for compatibility, no effect: a window's content is resized by the client |
+| animations | `duration_ms` / `easing` | 0-5000 / `linear`, `ease-in`, `ease-out`, `ease-in-out` | duration and curve of all animations |
 
 ## Keybinds
 
