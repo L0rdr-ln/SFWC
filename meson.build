@@ -101,7 +101,7 @@ if get_option('compositor')
 
   sfwc_exe = executable('sfwc',
     'src/main.c', xdg_shell_h, layer_shell_h, session_lock_h,
-    dependencies: [wlroots, wayland_server, xkbcommon, libm, libdrm, config_dep, theme_dep, deco_dep, anim_dep],
+    dependencies: [wlroots, wayland_server, xkbcommon, libm, libdrm, config_dep, theme_dep, template_dep, deco_dep, anim_dep],
     c_args: ['-Wno-unused-parameter'],
     install: true)
 
