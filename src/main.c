@@ -1,8 +1,9 @@
 /*
  * SFWC - Simple Floating Wayland Compositor
  *
- * M1: outputs + scene graph, xdg-shell windows, keyboard/pointer input,
- * click-to-focus, Alt+drag move/resize, a few hard-coded keybinds.
+ * M1/M2: outputs + scene graph, xdg-shell windows, keyboard/pointer input,
+ * click-to-focus, Alt+drag move/resize, maximize/fullscreen/minimize, edge
+ * snapping, cascading placement, a few hard-coded keybinds.
  * Config, themes, decorations and animations come in later milestones
  * (see docs/ROADMAP.md). Structure follows wlroots' tinywl example.
  *
@@ -11,11 +12,16 @@
  *   Alt+Return  spawn terminal ($SFWC_TERMINAL, default "foot")
  *   Alt+q       close focused window
  *   Alt+Tab     cycle windows
+ *   Alt+f       toggle maximize
+ *   Alt+F11     toggle fullscreen
+ *   Alt+m       minimize focused window
+ *   Alt+Shift+m restore the most recently minimized window
  *   Alt+Escape  quit
  *   Alt+LMB     move window, Alt+RMB resize window
  */
 #define _POSIX_C_SOURCE 200809L
 #include <assert.h>
+#include <math.h>
 #include <signal.h>
 #include <stdbool.h>
 #include <stdio.h>
@@ -48,6 +54,9 @@
 #include <xkbcommon/xkbcommon.h>
 
 #define BIND_MODIFIER WLR_MODIFIER_ALT
+#define GAP 8            /* px between windows/maximized windows and screen edge */
+#define SNAP_DISTANCE 12 /* px within which a moved window snaps to screen edges */
+#define CASCADE_STEP 32
 
 enum cursor_mode {
     CURSOR_PASSTHROUGH,
@@ -86,6 +95,7 @@ struct server {
     double grab_x, grab_y;
     struct wlr_box grab_geobox;
     uint32_t resize_edges;
+    int cascade; /* offset of the next new window */
 
     struct wlr_output_layout *output_layout;
     struct wl_list outputs;
@@ -106,6 +116,11 @@ struct toplevel {
     struct server *server;
     struct wlr_xdg_toplevel *xdg_toplevel;
     struct wlr_scene_tree *scene_tree;
+    bool mapped;
+    bool maximized;
+    bool fullscreen;
+    bool minimized;
+    struct wlr_box saved; /* window geometry before maximize/fullscreen */
     struct wl_listener map;
     struct wl_listener unmap;
     struct wl_listener commit;
@@ -114,6 +129,7 @@ struct toplevel {
     struct wl_listener request_resize;
     struct wl_listener request_maximize;
     struct wl_listener request_fullscreen;
+    struct wl_listener request_minimize;
 };
 
 struct popup {
@@ -153,6 +169,114 @@ static void spawn(const char *cmd)
     waitpid(pid, NULL, 0);
 }
 
+
+/* ---------------------------------------------------------- geometry */
+
+/* Window geometry (without client-side shadows) in layout coordinates. */
+static struct wlr_box toplevel_geometry(struct toplevel *t)
+{
+    struct wlr_box geo = {0};
+    wlr_xdg_surface_get_geometry(t->xdg_toplevel->base, &geo);
+    geo.x += t->scene_tree->node.x;
+    geo.y += t->scene_tree->node.y;
+    return geo;
+}
+
+/* Move the window so its geometry's top-left corner is at (x, y). */
+static void toplevel_move_to(struct toplevel *t, int x, int y)
+{
+    struct wlr_box geo = {0};
+    wlr_xdg_surface_get_geometry(t->xdg_toplevel->base, &geo);
+    wlr_scene_node_set_position(&t->scene_tree->node, x - geo.x, y - geo.y);
+}
+
+/* Box of the output containing (x, y), or the center output; zero-sized if none. */
+static struct wlr_box output_box_at(struct server *server, double x, double y)
+{
+    struct wlr_box box = {0};
+    struct wlr_output *out = wlr_output_layout_output_at(server->output_layout, x, y);
+    if (!out) {
+        out = wlr_output_layout_get_center_output(server->output_layout);
+    }
+    if (out) {
+        wlr_output_layout_get_box(server->output_layout, out, &box);
+    }
+    return box;
+}
+
+static struct toplevel *top_visible(struct server *server)
+{
+    struct toplevel *t;
+    wl_list_for_each(t, &server->toplevels, link) {
+        if (!t->minimized) {
+            return t;
+        }
+    }
+    return NULL;
+}
+
+/* Apply maximized/fullscreen state; restores the saved geometry when both are off. */
+static void toplevel_apply_state(struct toplevel *t, bool max, bool fs)
+{
+    bool was_normal = !t->maximized && !t->fullscreen;
+    struct wlr_box ref = was_normal ? toplevel_geometry(t) : t->saved;
+    if (was_normal && (max || fs)) {
+        t->saved = ref;
+    }
+    t->maximized = max;
+    t->fullscreen = fs;
+    wlr_xdg_toplevel_set_maximized(t->xdg_toplevel, max);
+    wlr_xdg_toplevel_set_fullscreen(t->xdg_toplevel, fs);
+
+    struct wlr_box box = output_box_at(t->server, ref.x + ref.width / 2.0, ref.y + ref.height / 2.0);
+    if ((fs || max) && box.width > 0) {
+        int inset = fs ? 0 : GAP;
+        toplevel_move_to(t, box.x + inset, box.y + inset);
+        wlr_xdg_toplevel_set_size(t->xdg_toplevel, box.width - 2 * inset, box.height - 2 * inset);
+    } else if (!fs && !max) {
+        toplevel_move_to(t, t->saved.x, t->saved.y);
+        wlr_xdg_toplevel_set_size(t->xdg_toplevel, t->saved.width, t->saved.height);
+    }
+    if (t->xdg_toplevel->base->initialized) {
+        wlr_xdg_surface_schedule_configure(t->xdg_toplevel->base);
+    }
+}
+
+/* Cascade new windows from the top-left of the output under the cursor. */
+static void place_new_toplevel(struct toplevel *t)
+{
+    struct server *server = t->server;
+    struct wlr_box box = output_box_at(server, server->cursor->x, server->cursor->y);
+    if (box.width <= 0) {
+        return;
+    }
+    struct wlr_box geo = toplevel_geometry(t);
+    int x, y;
+    if (t->xdg_toplevel->parent) { /* dialog: center */
+        x = box.x + (box.width - geo.width) / 2;
+        y = box.y + (box.height - geo.height) / 2;
+    } else {
+        x = box.x + 48 + server->cascade;
+        y = box.y + 48 + server->cascade;
+        server->cascade = (server->cascade + CASCADE_STEP) % (6 * CASCADE_STEP);
+    }
+    int max_x = box.x + box.width - GAP - geo.width;
+    int max_y = box.y + box.height - GAP - geo.height;
+    if (x > max_x) {
+        x = max_x;
+    }
+    if (y > max_y) {
+        y = max_y;
+    }
+    if (x < box.x + GAP) {
+        x = box.x + GAP;
+    }
+    if (y < box.y + GAP) {
+        y = box.y + GAP;
+    }
+    toplevel_move_to(t, x, y);
+}
+
 /* -------------------------------------------------------------- focusing */
 
 static void focus_toplevel(struct toplevel *toplevel)
@@ -187,6 +311,40 @@ static void focus_toplevel(struct toplevel *toplevel)
     }
 }
 
+
+static void toplevel_set_minimized(struct toplevel *t, bool minimize)
+{
+    struct server *server = t->server;
+    if (!t->mapped || t->minimized == minimize) {
+        return;
+    }
+    t->minimized = minimize;
+    wlr_scene_node_set_enabled(&t->scene_tree->node, !minimize);
+    if (minimize) {
+        wlr_log(WLR_INFO, "window minimized");
+        wlr_xdg_toplevel_set_activated(t->xdg_toplevel, false);
+        /* park it at the bottom of the stack */
+        wl_list_remove(&t->link);
+        wl_list_insert(server->toplevels.prev, &t->link);
+        if (t == server->grabbed_toplevel) {
+            server->cursor_mode = CURSOR_PASSTHROUGH;
+            server->grabbed_toplevel = NULL;
+        }
+        if (server->seat->keyboard_state.focused_surface == t->xdg_toplevel->base->surface) {
+            struct toplevel *next = top_visible(server);
+            if (next) {
+                focus_toplevel(next);
+            } else {
+                wlr_seat_keyboard_notify_clear_focus(server->seat);
+            }
+        }
+        wlr_seat_pointer_clear_focus(server->seat);
+    } else {
+        wlr_log(WLR_INFO, "window restored");
+        focus_toplevel(t);
+    }
+}
+
 /* ------------------------------------------------------------- keyboard */
 
 static bool handle_keybinding(struct server *server, xkb_keysym_t sym)
@@ -200,19 +358,55 @@ static bool handle_keybinding(struct server *server, xkb_keysym_t sym)
         spawn(term && *term ? term : "foot");
         return true;
     }
-    case XKB_KEY_q:
-        if (!wl_list_empty(&server->toplevels)) {
-            struct toplevel *top = wl_container_of(server->toplevels.next, top, link);
+    case XKB_KEY_q: {
+        struct toplevel *top = top_visible(server);
+        if (top) {
             wlr_xdg_toplevel_send_close(top->xdg_toplevel);
         }
         return true;
-    case XKB_KEY_Tab:
-        if (wl_list_length(&server->toplevels) >= 2) {
-            /* Focus the bottom-most window, which raises it. */
-            struct toplevel *next = wl_container_of(server->toplevels.prev, next, link);
-            focus_toplevel(next);
+    }
+    case XKB_KEY_Tab: {
+        /* Focus the bottom-most visible window, which raises it. */
+        struct toplevel *t;
+        wl_list_for_each_reverse(t, &server->toplevels, link) {
+            if (!t->minimized) {
+                focus_toplevel(t);
+                break;
+            }
         }
         return true;
+    }
+    case XKB_KEY_f: {
+        struct toplevel *top = top_visible(server);
+        if (top) {
+            toplevel_apply_state(top, !top->maximized, false);
+        }
+        return true;
+    }
+    case XKB_KEY_F11: {
+        struct toplevel *top = top_visible(server);
+        if (top) {
+            toplevel_apply_state(top, top->maximized, !top->fullscreen);
+        }
+        return true;
+    }
+    case XKB_KEY_m: {
+        struct toplevel *top = top_visible(server);
+        if (top) {
+            toplevel_set_minimized(top, true);
+        }
+        return true;
+    }
+    case XKB_KEY_M: { /* Alt+Shift+m */
+        struct toplevel *t;
+        wl_list_for_each_reverse(t, &server->toplevels, link) {
+            if (t->minimized) {
+                toplevel_set_minimized(t, false);
+                break;
+            }
+        }
+        return true;
+    }
     default:
         return false;
     }
@@ -360,6 +554,9 @@ static void begin_interactive(struct toplevel *toplevel, enum cursor_mode mode, 
 {
     struct server *server = toplevel->server;
     struct wlr_surface *focused = server->seat->pointer_state.focused_surface;
+    if (toplevel->maximized || toplevel->fullscreen) {
+        return; /* un-maximize first */
+    }
     if (focused == NULL ||
         toplevel->xdg_toplevel->base->surface != wlr_surface_get_root_surface(focused)) {
         return; /* only the window under the pointer may start a grab */
@@ -389,8 +586,31 @@ static void begin_interactive(struct toplevel *toplevel, enum cursor_mode mode, 
 static void process_cursor_move(struct server *server)
 {
     struct toplevel *toplevel = server->grabbed_toplevel;
-    wlr_scene_node_set_position(&toplevel->scene_tree->node, server->cursor->x - server->grab_x,
-                                server->cursor->y - server->grab_y);
+    double nx = server->cursor->x - server->grab_x;
+    double ny = server->cursor->y - server->grab_y;
+
+    /* Snap the window's geometry to the edges of the output under the cursor. */
+    struct wlr_box geo = {0};
+    wlr_xdg_surface_get_geometry(toplevel->xdg_toplevel->base, &geo);
+    struct wlr_box box = output_box_at(server, server->cursor->x, server->cursor->y);
+    if (box.width > 0) {
+        double x = nx + geo.x, y = ny + geo.y;
+        double left = box.x + GAP, right = box.x + box.width - GAP - geo.width;
+        double top = box.y + GAP, bottom = box.y + box.height - GAP - geo.height;
+        if (fabs(x - left) < SNAP_DISTANCE) {
+            x = left;
+        } else if (fabs(x - right) < SNAP_DISTANCE) {
+            x = right;
+        }
+        if (fabs(y - top) < SNAP_DISTANCE) {
+            y = top;
+        } else if (fabs(y - bottom) < SNAP_DISTANCE) {
+            y = bottom;
+        }
+        nx = x - geo.x;
+        ny = y - geo.y;
+    }
+    wlr_scene_node_set_position(&toplevel->scene_tree->node, nx, ny);
 }
 
 static void process_cursor_resize(struct server *server)
@@ -598,6 +818,10 @@ static void toplevel_map(struct wl_listener *listener, void *data)
     wlr_log(WLR_INFO, "window mapped: title=%s app_id=%s",
             toplevel->xdg_toplevel->title ? toplevel->xdg_toplevel->title : "(none)",
             toplevel->xdg_toplevel->app_id ? toplevel->xdg_toplevel->app_id : "(none)");
+    toplevel->mapped = true;
+    if (!toplevel->maximized && !toplevel->fullscreen) {
+        place_new_toplevel(toplevel);
+    }
     wl_list_insert(&toplevel->server->toplevels, &toplevel->link);
     focus_toplevel(toplevel);
 }
@@ -606,18 +830,34 @@ static void toplevel_unmap(struct wl_listener *listener, void *data)
 {
     struct toplevel *toplevel = wl_container_of(listener, toplevel, unmap);
     wlr_log(WLR_INFO, "window unmapped");
-    if (toplevel == toplevel->server->grabbed_toplevel) {
-        reset_cursor_mode(toplevel->server);
+    struct server *server = toplevel->server;
+    if (toplevel == server->grabbed_toplevel) {
+        reset_cursor_mode(server);
     }
     wl_list_remove(&toplevel->link);
+    toplevel->mapped = false;
+    /* Hand keyboard focus to the next window. */
+    if (server->seat->keyboard_state.focused_surface == toplevel->xdg_toplevel->base->surface) {
+        struct toplevel *next = top_visible(server);
+        if (next) {
+            focus_toplevel(next);
+        } else {
+            wlr_seat_keyboard_notify_clear_focus(server->seat);
+        }
+    }
 }
 
 static void toplevel_commit(struct wl_listener *listener, void *data)
 {
     struct toplevel *toplevel = wl_container_of(listener, toplevel, commit);
     if (toplevel->xdg_toplevel->base->initial_commit) {
-        /* Let the client pick its own size. */
-        wlr_xdg_toplevel_set_size(toplevel->xdg_toplevel, 0, 0);
+        if (toplevel->maximized || toplevel->fullscreen) {
+            /* requested before the first commit: size it for the output now */
+            toplevel_apply_state(toplevel, toplevel->maximized, toplevel->fullscreen);
+        } else {
+            /* Let the client pick its own size. */
+            wlr_xdg_toplevel_set_size(toplevel->xdg_toplevel, 0, 0);
+        }
     }
 }
 
@@ -632,6 +872,7 @@ static void toplevel_destroy(struct wl_listener *listener, void *data)
     wl_list_remove(&toplevel->request_resize.link);
     wl_list_remove(&toplevel->request_maximize.link);
     wl_list_remove(&toplevel->request_fullscreen.link);
+    wl_list_remove(&toplevel->request_minimize.link);
     free(toplevel);
 }
 
@@ -648,21 +889,27 @@ static void toplevel_request_resize(struct wl_listener *listener, void *data)
     begin_interactive(toplevel, CURSOR_RESIZE, event->edges);
 }
 
-/* Maximize and fullscreen arrive in M2; just answer the configure for now. */
 static void toplevel_request_maximize(struct wl_listener *listener, void *data)
 {
     struct toplevel *toplevel = wl_container_of(listener, toplevel, request_maximize);
-    if (toplevel->xdg_toplevel->base->initialized) {
-        wlr_xdg_surface_schedule_configure(toplevel->xdg_toplevel->base);
-    }
+    toplevel_apply_state(toplevel, toplevel->xdg_toplevel->requested.maximized,
+                         toplevel->fullscreen);
 }
 
 static void toplevel_request_fullscreen(struct wl_listener *listener, void *data)
 {
     struct toplevel *toplevel = wl_container_of(listener, toplevel, request_fullscreen);
+    toplevel_apply_state(toplevel, toplevel->maximized,
+                         toplevel->xdg_toplevel->requested.fullscreen);
+}
+
+static void toplevel_request_minimize(struct wl_listener *listener, void *data)
+{
+    struct toplevel *toplevel = wl_container_of(listener, toplevel, request_minimize);
     if (toplevel->xdg_toplevel->base->initialized) {
         wlr_xdg_surface_schedule_configure(toplevel->xdg_toplevel->base);
     }
+    toplevel_set_minimized(toplevel, true);
 }
 
 static void server_new_xdg_toplevel(struct wl_listener *listener, void *data)
@@ -693,6 +940,8 @@ static void server_new_xdg_toplevel(struct wl_listener *listener, void *data)
     wl_signal_add(&xdg_toplevel->events.request_maximize, &toplevel->request_maximize);
     toplevel->request_fullscreen.notify = toplevel_request_fullscreen;
     wl_signal_add(&xdg_toplevel->events.request_fullscreen, &toplevel->request_fullscreen);
+    toplevel->request_minimize.notify = toplevel_request_minimize;
+    wl_signal_add(&xdg_toplevel->events.request_minimize, &toplevel->request_minimize);
 }
 
 static void popup_commit(struct wl_listener *listener, void *data)
@@ -814,7 +1063,15 @@ int main(int argc, char *argv[])
 
     server.cursor = wlr_cursor_create();
     wlr_cursor_attach_output_layout(server.cursor, server.output_layout);
-    server.cursor_mgr = wlr_xcursor_manager_create(NULL, 24);
+    /* Cursor theme/size follow XCURSOR_THEME / XCURSOR_SIZE like other desktops. */
+    unsigned cursor_size = 24;
+    const char *size_env = getenv("XCURSOR_SIZE");
+    if (size_env && atoi(size_env) > 0) {
+        cursor_size = (unsigned)atoi(size_env);
+    } else {
+        setenv("XCURSOR_SIZE", "24", 0);
+    }
+    server.cursor_mgr = wlr_xcursor_manager_create(getenv("XCURSOR_THEME"), cursor_size);
     server.cursor_mode = CURSOR_PASSTHROUGH;
     server.cursor_motion.notify = cursor_motion;
     wl_signal_add(&server.cursor->events.motion, &server.cursor_motion);

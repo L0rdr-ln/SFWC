@@ -37,5 +37,6 @@ wait "$PID"; STATUS=$?
 
 grep -q "output .* added" "$LOG"    || fail "no output was created"
 grep -q "window mapped.*sfwc-test-window" "$LOG" || fail "window was never mapped"
+grep -q "window minimized" "$LOG"   || fail "minimize request was not handled"
 grep -q "window unmapped" "$LOG"    || fail "window was never unmapped"
 echo "client test passed"

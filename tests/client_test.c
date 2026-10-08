@@ -20,11 +20,18 @@
 
 #define W 200
 #define H 100
+#define GAP 8 /* must match GAP in src/main.c */
 
 struct app {
     struct wl_compositor *compositor;
     struct wl_shm *shm;
     struct xdg_wm_base *wm_base;
+    struct wl_output *output;
+    int out_w, out_h;
+
+    /* last toplevel configure */
+    int cfg_arrived;
+    int cfg_w, cfg_h, cfg_max, cfg_fs;
 
     struct wl_surface *surface;
     struct xdg_surface *xdg_surface;
@@ -87,9 +94,23 @@ static void xdg_surface_configure(void *data, struct xdg_surface *s, uint32_t se
 }
 static const struct xdg_surface_listener xdg_surface_listener = {.configure = xdg_surface_configure};
 
-static void toplevel_configure(void *d, struct xdg_toplevel *t, int32_t w, int32_t h,
+static void toplevel_configure(void *data, struct xdg_toplevel *t, int32_t w, int32_t h,
                                struct wl_array *states)
 {
+    struct app *app = data;
+    app->cfg_w = w;
+    app->cfg_h = h;
+    app->cfg_max = app->cfg_fs = 0;
+    uint32_t *st;
+    wl_array_for_each(st, states)
+    {
+        if (*st == XDG_TOPLEVEL_STATE_MAXIMIZED) {
+            app->cfg_max = 1;
+        } else if (*st == XDG_TOPLEVEL_STATE_FULLSCREEN) {
+            app->cfg_fs = 1;
+        }
+    }
+    app->cfg_arrived = 1;
 }
 static void toplevel_close(void *data, struct xdg_toplevel *t)
 {
@@ -118,6 +139,28 @@ static void frame_done(void *data, struct wl_callback *cb, uint32_t time)
 }
 static const struct wl_callback_listener frame_listener = {.done = frame_done};
 
+static void output_geometry(void *d, struct wl_output *o, int32_t x, int32_t y, int32_t pw,
+                            int32_t ph, int32_t sp, const char *make, const char *model, int32_t tr)
+{
+}
+static void output_mode(void *data, struct wl_output *o, uint32_t flags, int32_t w, int32_t h,
+                        int32_t refresh)
+{
+    struct app *app = data;
+    if (flags & WL_OUTPUT_MODE_CURRENT) {
+        app->out_w = w;
+        app->out_h = h;
+    }
+}
+static void output_done(void *d, struct wl_output *o) {}
+static void output_scale(void *d, struct wl_output *o, int32_t f) {}
+static const struct wl_output_listener output_listener = {
+    .geometry = output_geometry,
+    .mode = output_mode,
+    .done = output_done,
+    .scale = output_scale,
+};
+
 static void registry_global(void *data, struct wl_registry *reg, uint32_t name,
                             const char *interface, uint32_t version)
 {
@@ -126,6 +169,9 @@ static void registry_global(void *data, struct wl_registry *reg, uint32_t name,
         app->compositor = wl_registry_bind(reg, name, &wl_compositor_interface, 4);
     } else if (strcmp(interface, wl_shm_interface.name) == 0) {
         app->shm = wl_registry_bind(reg, name, &wl_shm_interface, 1);
+    } else if (strcmp(interface, wl_output_interface.name) == 0 && !app->output) {
+        app->output = wl_registry_bind(reg, name, &wl_output_interface, 2);
+        wl_output_add_listener(app->output, &output_listener, app);
     } else if (strcmp(interface, xdg_wm_base_interface.name) == 0) {
         app->wm_base = wl_registry_bind(reg, name, &xdg_wm_base_interface, 1);
         xdg_wm_base_add_listener(app->wm_base, &wm_base_listener, app);
@@ -160,6 +206,24 @@ static void wait_for(struct wl_display *display, const int *flag, int timeout_ms
     }
 }
 
+/* Wait until a toplevel configure with the given state/size has been received. */
+static void expect_configure(struct app *app, struct wl_display *display, int max, int fs, int w,
+                             int h, const char *what)
+{
+    for (int i = 0; i < 20; i++) {
+        if (app->cfg_arrived && app->cfg_max == max && app->cfg_fs == fs && app->cfg_w == w &&
+            app->cfg_h == h) {
+            return;
+        }
+        app->cfg_arrived = 0;
+        wait_for(display, &app->cfg_arrived, 3000, what);
+    }
+    char msg[256];
+    snprintf(msg, sizeof msg, "%s: last configure max=%d fs=%d size=%dx%d, wanted max=%d fs=%d %dx%d",
+             what, app->cfg_max, app->cfg_fs, app->cfg_w, app->cfg_h, max, fs, w, h);
+    fail(msg);
+}
+
 int main(void)
 {
     struct app app = {0};
@@ -170,8 +234,12 @@ int main(void)
     struct wl_registry *registry = wl_display_get_registry(display);
     wl_registry_add_listener(registry, &registry_listener, &app);
     wl_display_roundtrip(display);
-    if (!app.compositor || !app.shm || !app.wm_base) {
-        fail("compositor is missing wl_compositor / wl_shm / xdg_wm_base");
+    wl_display_roundtrip(display); /* wl_output mode events */
+    if (!app.compositor || !app.shm || !app.wm_base || !app.output) {
+        fail("compositor is missing wl_compositor / wl_shm / xdg_wm_base / wl_output");
+    }
+    if (app.out_w <= 0 || app.out_h <= 0) {
+        fail("no output mode received");
     }
 
     /* Toplevel window */
@@ -210,10 +278,29 @@ int main(void)
     /* A frame callback only fires once the compositor drew the window. */
     wait_for(display, &app.frame_done, 3000, "frame callback (no output or window not rendered)");
 
-    /* Tear down: popup first, then toplevel. */
+    /* Close the popup before changing window state. */
     xdg_popup_destroy(app.popup);
     xdg_surface_destroy(app.popup_xdg_surface);
     wl_surface_destroy(app.popup_surface);
+    app.popup = NULL;
+
+    /* Maximize: fills the output minus a gap on each side. */
+    xdg_toplevel_set_maximized(app.toplevel);
+    expect_configure(&app, display, 1, 0, app.out_w - 2 * GAP, app.out_h - 2 * GAP, "maximize");
+    xdg_toplevel_unset_maximized(app.toplevel);
+    expect_configure(&app, display, 0, 0, W, H, "unmaximize restores the old size");
+
+    /* Fullscreen: covers the whole output. */
+    xdg_toplevel_set_fullscreen(app.toplevel, NULL);
+    expect_configure(&app, display, 0, 1, app.out_w, app.out_h, "fullscreen");
+    xdg_toplevel_unset_fullscreen(app.toplevel);
+    expect_configure(&app, display, 0, 0, W, H, "leave fullscreen restores the old size");
+
+    /* Minimize has no reply for the client; the compositor logs it. */
+    xdg_toplevel_set_minimized(app.toplevel);
+    wl_display_roundtrip(display);
+
+    /* Tear down. */
     xdg_toplevel_destroy(app.toplevel);
     xdg_surface_destroy(app.xdg_surface);
     wl_surface_destroy(app.surface);

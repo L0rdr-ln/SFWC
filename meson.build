@@ -26,6 +26,7 @@ if get_option('compositor')
     default_options: ['examples=false'])
   wayland_server = dependency('wayland-server')
   xkbcommon = dependency('xkbcommon')
+  libm = meson.get_compiler('c').find_library('m')
 
   # wlroots headers include xdg-shell-protocol.h, which we generate ourselves.
   wayland_scanner = find_program('wayland-scanner', native: true)
@@ -38,7 +39,7 @@ if get_option('compositor')
 
   sfwc_exe = executable('sfwc',
     'src/main.c', xdg_shell_h,
-    dependencies: [wlroots, wayland_server, xkbcommon, inih_dep],
+    dependencies: [wlroots, wayland_server, xkbcommon, libm, inih_dep],
     c_args: ['-Wno-unused-parameter'],
     install: true)
 
