@@ -32,7 +32,8 @@ jobs:
         run: python3 -m pip install --user "meson>=1.4,<2" && echo "$HOME/.local/bin" >> "$GITHUB_PATH"
       - run: meson setup build -Dwlroots:examples=false -Dwayland:documentation=false -Dwayland:tests=false -Dwayland:dtd_validation=false -Db_sanitize=address,undefined -Db_lundef=false
       - run: meson compile -C build
-      - run: meson test -C build --print-errorlogs
+      # only our tests: the wlroots subprojects (libdrm, pixman, ...) bring their own, which are slow and not ours
+      - run: meson test -C build --suite sfwc --print-errorlogs
       - name: Smoke test (headless backend, clean shutdown on SIGINT)
         run: |
           export XDG_RUNTIME_DIR="$(mktemp -d)" && chmod 700 "$XDG_RUNTIME_DIR"
