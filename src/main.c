@@ -49,6 +49,12 @@
 #include <wlr/types/wlr_subcompositor.h>
 #include <wlr/types/wlr_virtual_keyboard_v1.h>
 #include <wlr/types/wlr_virtual_pointer_v1.h>
+#include <wlr/types/wlr_data_control_v1.h>
+#include <wlr/types/wlr_foreign_toplevel_management_v1.h>
+#include <wlr/types/wlr_idle_inhibit_v1.h>
+#include <wlr/types/wlr_idle_notify_v1.h>
+#include <wlr/types/wlr_primary_selection.h>
+#include <wlr/types/wlr_primary_selection_v1.h>
 #include <wlr/types/wlr_screencopy_v1.h>
 #include <wlr/types/wlr_xcursor_manager.h>
 #include <wlr/types/wlr_xdg_decoration_v1.h>
@@ -106,6 +112,12 @@ struct server {
     struct wl_listener new_input;
     struct wl_listener request_cursor;
     struct wl_listener request_set_selection;
+    struct wl_listener request_set_primary_selection;
+    struct wlr_idle_notifier_v1 *idle_notifier;
+    struct wlr_idle_inhibit_manager_v1 *idle_inhibit_mgr;
+    struct wl_listener new_idle_inhibitor;
+    int idle_inhibitors;
+    struct wlr_foreign_toplevel_manager_v1 *foreign_toplevel_mgr;
     struct wl_list keyboards;
     /* Virtual input (tests only, SFWC_ENABLE_VIRTUAL_INPUT=1): any client could
      * otherwise inject keystrokes. */
@@ -189,6 +201,19 @@ struct toplevel {
     struct wl_listener request_maximize;
     struct wl_listener request_fullscreen;
     struct wl_listener request_minimize;
+
+    /* wlr-foreign-toplevel-management (taskbars) */
+    struct wlr_foreign_toplevel_handle_v1 *fth;
+    struct wl_listener fth_activate;
+    struct wl_listener fth_maximize;
+    struct wl_listener fth_minimize;
+    struct wl_listener fth_fullscreen;
+    struct wl_listener fth_close;
+};
+
+struct idle_inhibitor {
+    struct server *server;
+    struct wl_listener destroy;
 };
 
 struct layer_surface {
@@ -210,6 +235,7 @@ struct popup {
 };
 
 static void arrange_layers(struct output *output);
+static void fth_sync(struct toplevel *t);
 static void focus_layer_surface(struct server *server, struct wlr_layer_surface_v1 *layer);
 
 struct keyboard {
@@ -751,6 +777,7 @@ static void toplevel_apply_state(struct toplevel *t, bool max, bool fs)
     if (t->xdg_toplevel->base->initialized) {
         wlr_xdg_surface_schedule_configure(t->xdg_toplevel->base);
     }
+    fth_sync(t);
 }
 
 /* Cascade new windows from the top-left of the output under the cursor. */
@@ -862,6 +889,133 @@ static void toplevel_set_minimized(struct toplevel *t, bool minimize)
         wlr_log(WLR_INFO, "window restored");
         focus_toplevel(t);
     }
+    fth_sync(t);
+}
+
+/* ------------------------------------------- taskbar protocol, idle, clipboard */
+
+/* Push title, app id and state of a window to the taskbars watching it. */
+static void fth_sync(struct toplevel *t)
+{
+    if (!t->fth) {
+        return;
+    }
+    struct wlr_xdg_toplevel *x = t->xdg_toplevel;
+    wlr_foreign_toplevel_handle_v1_set_title(t->fth, x->title ? x->title : "");
+    wlr_foreign_toplevel_handle_v1_set_app_id(t->fth, x->app_id ? x->app_id : "");
+    wlr_foreign_toplevel_handle_v1_set_maximized(t->fth, t->maximized);
+    wlr_foreign_toplevel_handle_v1_set_minimized(t->fth, t->minimized);
+    wlr_foreign_toplevel_handle_v1_set_fullscreen(t->fth, t->fullscreen);
+    wlr_foreign_toplevel_handle_v1_set_activated(
+        t->fth, t->mapped && !t->minimized &&
+                    t->server->seat->keyboard_state.focused_surface == x->base->surface);
+}
+
+static void fth_request_activate(struct wl_listener *listener, void *data)
+{
+    struct toplevel *t = wl_container_of(listener, t, fth_activate);
+    if (!t->mapped) {
+        return;
+    }
+    if (t->minimized) {
+        toplevel_set_minimized(t, false);
+    } else {
+        focus_toplevel(t);
+    }
+}
+
+static void fth_request_maximize(struct wl_listener *listener, void *data)
+{
+    struct toplevel *t = wl_container_of(listener, t, fth_maximize);
+    struct wlr_foreign_toplevel_handle_v1_maximized_event *ev = data;
+    if (t->mapped) {
+        toplevel_apply_state(t, ev->maximized, t->fullscreen);
+    }
+}
+
+static void fth_request_minimize(struct wl_listener *listener, void *data)
+{
+    struct toplevel *t = wl_container_of(listener, t, fth_minimize);
+    struct wlr_foreign_toplevel_handle_v1_minimized_event *ev = data;
+    toplevel_set_minimized(t, ev->minimized);
+}
+
+static void fth_request_fullscreen(struct wl_listener *listener, void *data)
+{
+    struct toplevel *t = wl_container_of(listener, t, fth_fullscreen);
+    struct wlr_foreign_toplevel_handle_v1_fullscreen_event *ev = data;
+    if (t->mapped) {
+        toplevel_apply_state(t, t->maximized, ev->fullscreen);
+    }
+}
+
+static void fth_request_close(struct wl_listener *listener, void *data)
+{
+    struct toplevel *t = wl_container_of(listener, t, fth_close);
+    wlr_xdg_toplevel_send_close(t->xdg_toplevel);
+}
+
+static void fth_create(struct toplevel *t)
+{
+    t->fth = wlr_foreign_toplevel_handle_v1_create(t->server->foreign_toplevel_mgr);
+    t->fth_activate.notify = fth_request_activate;
+    wl_signal_add(&t->fth->events.request_activate, &t->fth_activate);
+    t->fth_maximize.notify = fth_request_maximize;
+    wl_signal_add(&t->fth->events.request_maximize, &t->fth_maximize);
+    t->fth_minimize.notify = fth_request_minimize;
+    wl_signal_add(&t->fth->events.request_minimize, &t->fth_minimize);
+    t->fth_fullscreen.notify = fth_request_fullscreen;
+    wl_signal_add(&t->fth->events.request_fullscreen, &t->fth_fullscreen);
+    t->fth_close.notify = fth_request_close;
+    wl_signal_add(&t->fth->events.request_close, &t->fth_close);
+    fth_sync(t);
+}
+
+static void fth_destroy(struct toplevel *t)
+{
+    if (!t->fth) {
+        return;
+    }
+    wl_list_remove(&t->fth_activate.link);
+    wl_list_remove(&t->fth_maximize.link);
+    wl_list_remove(&t->fth_minimize.link);
+    wl_list_remove(&t->fth_fullscreen.link);
+    wl_list_remove(&t->fth_close.link);
+    wlr_foreign_toplevel_handle_v1_destroy(t->fth);
+    t->fth = NULL;
+}
+
+/* Any input resets the idle timers (ext-idle-notify). */
+static void input_activity(struct server *server)
+{
+    if (server->idle_notifier) {
+        wlr_idle_notifier_v1_notify_activity(server->idle_notifier, server->seat);
+    }
+}
+
+static void idle_inhibitor_destroy(struct wl_listener *listener, void *data)
+{
+    struct idle_inhibitor *inh = wl_container_of(listener, inh, destroy);
+    struct server *server = inh->server;
+    wl_list_remove(&inh->destroy.link);
+    free(inh);
+    server->idle_inhibitors--;
+    wlr_idle_notifier_v1_set_inhibited(server->idle_notifier, server->idle_inhibitors > 0);
+}
+
+static void server_new_idle_inhibitor(struct wl_listener *listener, void *data)
+{
+    struct server *server = wl_container_of(listener, server, new_idle_inhibitor);
+    struct wlr_idle_inhibitor_v1 *wlr_inh = data;
+    struct idle_inhibitor *inh = calloc(1, sizeof *inh);
+    if (!inh) {
+        return;
+    }
+    inh->server = server;
+    inh->destroy.notify = idle_inhibitor_destroy;
+    wl_signal_add(&wlr_inh->events.destroy, &inh->destroy);
+    server->idle_inhibitors++;
+    wlr_idle_notifier_v1_set_inhibited(server->idle_notifier, true);
 }
 
 /* ------------------------------------------------------------- keyboard */
@@ -1099,6 +1253,7 @@ static void keyboard_handle_key(struct wl_listener *listener, void *data)
     struct server *server = keyboard->server;
     struct wlr_keyboard_key_event *event = data;
     struct wlr_seat *seat = server->seat;
+    input_activity(server);
 
     uint32_t keycode = event->keycode + 8; /* libinput -> xkb */
 
@@ -1240,6 +1395,13 @@ static void seat_request_cursor(struct wl_listener *listener, void *data)
     if (focused == event->seat_client) {
         wlr_cursor_set_surface(server->cursor, event->surface, event->hotspot_x, event->hotspot_y);
     }
+}
+
+static void seat_request_set_primary_selection(struct wl_listener *listener, void *data)
+{
+    struct server *server = wl_container_of(listener, server, request_set_primary_selection);
+    struct wlr_seat_request_set_primary_selection_event *event = data;
+    wlr_seat_set_primary_selection(server->seat, event->source, event->serial);
 }
 
 static void seat_request_set_selection(struct wl_listener *listener, void *data)
@@ -1489,6 +1651,7 @@ static void cursor_motion(struct wl_listener *listener, void *data)
 {
     struct server *server = wl_container_of(listener, server, cursor_motion);
     struct wlr_pointer_motion_event *event = data;
+    input_activity(server);
     wlr_cursor_move(server->cursor, &event->pointer->base, event->delta_x, event->delta_y);
     process_cursor_motion(server, event->time_msec);
 }
@@ -1497,6 +1660,7 @@ static void cursor_motion_absolute(struct wl_listener *listener, void *data)
 {
     struct server *server = wl_container_of(listener, server, cursor_motion_absolute);
     struct wlr_pointer_motion_absolute_event *event = data;
+    input_activity(server);
     wlr_cursor_warp_absolute(server->cursor, &event->pointer->base, event->x, event->y);
     process_cursor_motion(server, event->time_msec);
 }
@@ -1505,6 +1669,7 @@ static void cursor_button(struct wl_listener *listener, void *data)
 {
     struct server *server = wl_container_of(listener, server, cursor_button);
     struct wlr_pointer_button_event *event = data;
+    input_activity(server);
 
     if (event->state == WL_POINTER_BUTTON_STATE_RELEASED) {
         wlr_seat_pointer_notify_button(server->seat, event->time_msec, event->button, event->state);
@@ -1586,6 +1751,7 @@ static void cursor_axis(struct wl_listener *listener, void *data)
 {
     struct server *server = wl_container_of(listener, server, cursor_axis);
     struct wlr_pointer_axis_event *event = data;
+    input_activity(server);
     wlr_seat_pointer_notify_axis(server->seat, event->time_msec, event->orientation, event->delta,
                                  event->delta_discrete, event->source, event->relative_direction);
 }
@@ -1753,6 +1919,7 @@ static void handle_keyboard_focus_change(struct wl_listener *listener, void *dat
         struct toplevel *t = toplevel_from_xdg(xdg);
         if (t) {
             frame_refresh(t);
+            fth_sync(t);
         }
     }
 }
@@ -1761,6 +1928,7 @@ static void toplevel_set_title(struct wl_listener *listener, void *data)
 {
     struct toplevel *toplevel = wl_container_of(listener, toplevel, set_title);
     frame_refresh(toplevel);
+    fth_sync(toplevel);
 }
 
 
@@ -1775,6 +1943,7 @@ static void toplevel_map(struct wl_listener *listener, void *data)
         place_new_toplevel(toplevel);
     }
     wl_list_insert(&toplevel->server->toplevels, &toplevel->link);
+    fth_create(toplevel);
     focus_toplevel(toplevel);
     frame_refresh(toplevel);
     animate_open(toplevel);
@@ -1793,6 +1962,7 @@ static void toplevel_unmap(struct wl_listener *listener, void *data)
     }
     wl_list_remove(&toplevel->link);
     toplevel->mapped = false;
+    fth_destroy(toplevel);
     /* Hand keyboard focus to the next window. */
     if (server->seat->keyboard_state.focused_surface == toplevel->xdg_toplevel->base->surface) {
         struct toplevel *next = top_visible(server);
@@ -2500,6 +2670,18 @@ int main(int argc, char *argv[])
     server.request_set_selection.notify = seat_request_set_selection;
     wl_signal_add(&server.seat->events.request_set_selection, &server.request_set_selection);
 
+    /* middle-click paste, clipboard managers, idle daemons, taskbars */
+    wlr_primary_selection_v1_device_manager_create(server.display);
+    server.request_set_primary_selection.notify = seat_request_set_primary_selection;
+    wl_signal_add(&server.seat->events.request_set_primary_selection,
+                  &server.request_set_primary_selection);
+    wlr_data_control_manager_v1_create(server.display);
+    server.idle_notifier = wlr_idle_notifier_v1_create(server.display);
+    server.idle_inhibit_mgr = wlr_idle_inhibit_v1_create(server.display);
+    server.new_idle_inhibitor.notify = server_new_idle_inhibitor;
+    wl_signal_add(&server.idle_inhibit_mgr->events.new_inhibitor, &server.new_idle_inhibitor);
+    server.foreign_toplevel_mgr = wlr_foreign_toplevel_manager_v1_create(server.display);
+
     const char *vinput = getenv("SFWC_ENABLE_VIRTUAL_INPUT");
     if (vinput && strcmp(vinput, "1") == 0) {
         wlr_log(WLR_INFO, "virtual input protocols enabled (testing)");
@@ -2549,6 +2731,8 @@ int main(int argc, char *argv[])
     wl_list_remove(&server.new_input.link);
     wl_list_remove(&server.request_cursor.link);
     wl_list_remove(&server.request_set_selection.link);
+    wl_list_remove(&server.request_set_primary_selection.link);
+    wl_list_remove(&server.new_idle_inhibitor.link);
     wl_list_remove(&server.new_output.link);
     wl_list_remove(&server.new_toplevel_decoration.link);
     wl_list_remove(&server.new_layer_surface.link);

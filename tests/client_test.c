@@ -65,7 +65,11 @@ struct win {
     int deco_mode;
 };
 
+#define MAX_GLOBALS 64
+
 struct app {
+    char *globals[MAX_GLOBALS];
+    int n_globals;
     struct wl_compositor *compositor;
     struct wl_shm *shm;
     struct xdg_wm_base *wm_base;
@@ -376,6 +380,9 @@ static void registry_global(void *data, struct wl_registry *reg, uint32_t name,
                             const char *interface, uint32_t version)
 {
     struct app *app = data;
+    if (app->n_globals < MAX_GLOBALS) {
+        app->globals[app->n_globals++] = strdup(interface);
+    }
     if (strcmp(interface, wl_compositor_interface.name) == 0) {
         app->compositor = wl_registry_bind(reg, name, &wl_compositor_interface, 4);
     } else if (strcmp(interface, wl_shm_interface.name) == 0) {
@@ -1592,6 +1599,27 @@ int main(int argc, char **argv)
     struct wl_registry *registry = wl_display_get_registry(display);
     wl_registry_add_listener(registry, &registry_listener, &app);
     wl_display_roundtrip(display);
+    static const char *const required[] = {
+        "wl_data_device_manager",
+        "zwp_primary_selection_device_manager_v1",
+        "zwlr_data_control_manager_v1",
+        "ext_idle_notifier_v1",
+        "zwp_idle_inhibit_manager_v1",
+        "zwlr_foreign_toplevel_manager_v1",
+        "zwlr_layer_shell_v1",
+        "zxdg_decoration_manager_v1",
+    };
+    for (size_t i = 0; i < sizeof required / sizeof *required; i++) {
+        int found = 0;
+        for (int g = 0; g < app.n_globals; g++) {
+            found |= strcmp(app.globals[g], required[i]) == 0;
+        }
+        if (!found) {
+            char msg[160];
+            snprintf(msg, sizeof msg, "compositor does not advertise %s", required[i]);
+            fail(msg);
+        }
+    }
     if (!app.compositor || !app.shm || !app.wm_base || !app.output || !app.xdg_out_mgr) {
         fail("compositor is missing wl_compositor / wl_shm / xdg_wm_base / wl_output / "
              "zxdg_output_manager_v1");
