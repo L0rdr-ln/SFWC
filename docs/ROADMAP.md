@@ -11,18 +11,20 @@ are roughly in build order; check them off as they land.
 - [x] CI fails on errors; wlroots 0.18 comes from `subprojects/wlroots.wrap`
 - [x] `src/main.c` compiles against wlroots 0.18.2 (built from the wraps) in CI, with ASan/UBSan
 
-## M1 – A window on screen  *(implemented; CI covers build + headless start/stop)*
+## M1 – A window on screen  *(implemented; CI runs a real client against it)*
 - [x] Server struct, signal handling (SIGINT/SIGTERM), clean shutdown
 - [x] Outputs (monitors) + `wlr_scene`
 - [x] xdg-shell toplevels and popups
 - [x] Keyboard + pointer via seat, click-to-focus, raise on focus
 - [x] Spawn a terminal with Alt+Return (double fork, no zombies)
 - [x] Bonus: Alt+drag move/resize, Alt+Tab, Alt+q, Alt+Esc
-- [ ] **Still to verify by hand**: run nested (`./build/sfwc` inside another
-      Wayland session, then `WAYLAND_DISPLAY=... foot`) and confirm windows,
-      focus, move/resize and keybinds behave. CI only checks that it starts
-      headless and shuts down cleanly.
-- [ ] Automated client test in CI (headless + a tiny Wayland client)
+- [ ] **Still to verify by hand**: input-driven behavior (focus, Alt+drag
+      move/resize, Alt+keybinds) is not covered by CI because headless has no
+      input devices. Run nested (`./build/sfwc` inside another Wayland session,
+      then `WAYLAND_DISPLAY=... foot`) and try them.
+- [ ] Extend the client test with synthetic input (wlroots virtual pointer/keyboard)
+- [x] Automated client test in CI (`tests/client_test.c`: toplevel + popup + frame
+      callback against headless sfwc; checks the log and clean shutdown)
 
 ## M2 – Usable floating WM
 - [x] Interactive move and resize with modifier+mouse (done early, see M1)
