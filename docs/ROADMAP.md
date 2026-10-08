@@ -92,9 +92,13 @@ are roughly in build order; check them off as they land.
 - [ ] Move `themes/` to its own repo once format and templates are stable
 
 ## M7 – Release
-- [ ] Xwayland
-- [ ] TTY session: `.desktop` file for display managers, seatd/logind checks
-- [ ] Man pages, packaging (Arch/AUR, Debian, Nix), tagged 1.0.0
+- [ ] Xwayland: deliberately **after 1.0**. It needs a second window kind next to xdg-shell
+      (X11 override-redirect windows, ICCCM state) and the X libraries in every package.
+- [x] TTY session: `sfwc.desktop` for display managers, `XDG_CURRENT_DESKTOP`/`XDG_SESSION_TYPE`,
+      D-Bus activation environment, Ctrl+Alt+F1..F12 VT switching (libseat)
+- [x] Man pages (`sfwc.1`, `sfwc.conf.5`, `sfwc-theme-apply.1`), `meson install` checked in CI
+- [ ] Test on real hardware (TTY, several GPUs, multi-monitor); needs a person with a machine
+- [ ] Packaging (Arch/AUR, Debian, Nix), tag 1.0.0 (tags/releases are made by the maintainer)
 
 ## Later / ideas
 - Optional tiling-assist (snap zones), window rules, per-app opacity

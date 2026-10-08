@@ -6,6 +6,8 @@ Versions follow the roadmap milestones while the project is pre-1.0:
 ## Unreleased – M3 "Configuration" and M1–M3 completion
 
 ### Added
+- Session integration (M7): `sfwc.desktop` for display managers, man pages, Ctrl+Alt+F1..F12
+  VT switching, `XDG_CURRENT_DESKTOP=SFWC`, D-Bus activation environment, install check in CI.
 - Theme templating (M6): `sfwc-theme-apply` renders `@section.key@` templates (waybar, fuzzel,
   foot, mako, swaylock) into `$XDG_RUNTIME_DIR/sfwc/` on start and reload; `[templates]`
   config section; theme placeholders in `spawn:` and `[autostart]` commands.

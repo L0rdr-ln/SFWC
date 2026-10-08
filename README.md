@@ -4,9 +4,12 @@ A small, easy-to-configure **floating (stacking) Wayland compositor** built on
 [wlroots](https://gitlab.freedesktop.org/wlroots/wlroots), with themeable
 window decorations and animations.
 
-> **Status: early skeleton.** The project layout, build system, config format
-> and roadmap are in place; the compositor itself is being built up step by
-> step (see [docs/ROADMAP.md](docs/ROADMAP.md)).
+> **Status: alpha, feature complete for a first release (M0-M7 except Xwayland).** Floating
+> windows, decorations, themes, animations, workspaces, layer-shell bars, lock screen,
+> clipboard and the theme templating are implemented and covered by automated end-to-end
+> tests on a headless backend in CI. **Not yet tried on real hardware** (TTY/DRM): expect
+> rough edges there, and please report them. Xwayland is not supported yet (X11-only apps will
+> not start). See [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ## Goals
 
