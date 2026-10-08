@@ -371,14 +371,15 @@ static void begin_interactive(struct toplevel *toplevel, enum cursor_mode mode, 
         server->grab_x = server->cursor->x - toplevel->scene_tree->node.x;
         server->grab_y = server->cursor->y - toplevel->scene_tree->node.y;
     } else {
-        struct wlr_box *geo = &toplevel->xdg_toplevel->base->geometry;
-        double border_x = (toplevel->scene_tree->node.x + geo->x) +
-                          ((edges & WLR_EDGE_RIGHT) ? geo->width : 0);
-        double border_y = (toplevel->scene_tree->node.y + geo->y) +
-                          ((edges & WLR_EDGE_BOTTOM) ? geo->height : 0);
+        struct wlr_box geo;
+        wlr_xdg_surface_get_geometry(toplevel->xdg_toplevel->base, &geo);
+        double border_x = (toplevel->scene_tree->node.x + geo.x) +
+                          ((edges & WLR_EDGE_RIGHT) ? geo.width : 0);
+        double border_y = (toplevel->scene_tree->node.y + geo.y) +
+                          ((edges & WLR_EDGE_BOTTOM) ? geo.height : 0);
         server->grab_x = server->cursor->x - border_x;
         server->grab_y = server->cursor->y - border_y;
-        server->grab_geobox = *geo;
+        server->grab_geobox = geo;
         server->grab_geobox.x += toplevel->scene_tree->node.x;
         server->grab_geobox.y += toplevel->scene_tree->node.y;
         server->resize_edges = edges;
@@ -425,8 +426,9 @@ static void process_cursor_resize(struct server *server)
         }
     }
 
-    struct wlr_box *geo = &toplevel->xdg_toplevel->base->geometry;
-    wlr_scene_node_set_position(&toplevel->scene_tree->node, new_left - geo->x, new_top - geo->y);
+    struct wlr_box geo;
+    wlr_xdg_surface_get_geometry(toplevel->xdg_toplevel->base, &geo);
+    wlr_scene_node_set_position(&toplevel->scene_tree->node, new_left - geo.x, new_top - geo.y);
     wlr_xdg_toplevel_set_size(toplevel->xdg_toplevel, new_right - new_left, new_bottom - new_top);
 }
 
@@ -497,9 +499,10 @@ static void cursor_button(struct wl_listener *listener, void *data)
         if (event->button == BTN_LEFT) {
             begin_interactive(toplevel, CURSOR_MOVE, 0);
         } else {
-            struct wlr_box *geo = &toplevel->xdg_toplevel->base->geometry;
-            uint32_t edges = (sx < geo->width / 2.0 ? WLR_EDGE_LEFT : WLR_EDGE_RIGHT) |
-                             (sy < geo->height / 2.0 ? WLR_EDGE_TOP : WLR_EDGE_BOTTOM);
+            struct wlr_box geo;
+            wlr_xdg_surface_get_geometry(toplevel->xdg_toplevel->base, &geo);
+            uint32_t edges = (sx < geo.width / 2.0 ? WLR_EDGE_LEFT : WLR_EDGE_RIGHT) |
+                             (sy < geo.height / 2.0 ? WLR_EDGE_TOP : WLR_EDGE_BOTTOM);
             begin_interactive(toplevel, CURSOR_RESIZE, edges);
         }
         return;
