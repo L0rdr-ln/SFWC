@@ -98,7 +98,8 @@ are roughly in build order; check them off as they land.
 - [x] TTY session: `sfwc.desktop` for display managers, `XDG_CURRENT_DESKTOP`/`XDG_SESSION_TYPE`,
       D-Bus activation environment, Ctrl+Alt+F1..F12 VT switching (libseat)
 - [x] Man pages (`sfwc.1`, `sfwc.conf.5`, `sfwc-theme-apply.1`), `meson install` checked in CI
-- [ ] Test on real hardware (TTY, several GPUs, multi-monitor); needs a person with a machine
+- [ ] Test on real hardware (TTY, several GPUs, multi-monitor); needs a person with a machine.
+      `tools/try-sfwc.sh` and `docs/HARDWARE-TESTING.md` make it a five minute job.
 - [ ] Packaging (Arch/AUR, Debian, Nix), tag 1.0.0 (tags/releases are made by the maintainer)
 
 ## Later / ideas

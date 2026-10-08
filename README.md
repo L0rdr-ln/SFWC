@@ -97,6 +97,10 @@ Optional extra themes and templates (`themes/` is a separate package):
 meson setup build-themes themes && sudo meson install -C build-themes
 ```
 
+**Try it on your machine** (nested in your desktop, or on a console) and get a report to paste
+into an issue with one command: `tools/try-sfwc.sh`, see
+[docs/HARDWARE-TESTING.md](docs/HARDWARE-TESTING.md).
+
 Parser and unit tests only, without wlroots: `meson setup build -Dcompositor=false`.
 
 ## Default keys

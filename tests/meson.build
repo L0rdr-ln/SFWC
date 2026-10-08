@@ -41,6 +41,12 @@ test_fuzz = executable('test_fuzz', 'test_fuzz.c',
   c_args: ['-DSRC_ROOT="' + meson.project_source_root() + '"'])
 test('parser-fuzz', test_fuzz, timeout: 120)
 
+bash = find_program('bash', required: false)
+if bash.found()
+  test('try-script-syntax', bash,
+    args: ['-n', meson.project_source_root() / 'tools/try-sfwc.sh'])
+endif
+
 test_anim = executable('test_anim', 'test_anim.c', dependencies: [anim_dep, libm])
 test('animation-math', test_anim)
 
