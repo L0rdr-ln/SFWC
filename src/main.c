@@ -47,6 +47,8 @@
 #include <wlr/types/wlr_scene.h>
 #include <wlr/types/wlr_seat.h>
 #include <wlr/types/wlr_subcompositor.h>
+#include <wlr/types/wlr_virtual_keyboard_v1.h>
+#include <wlr/types/wlr_virtual_pointer_v1.h>
 #include <wlr/types/wlr_xcursor_manager.h>
 #include <wlr/types/wlr_xdg_shell.h>
 #include <wlr/util/edges.h>
@@ -90,6 +92,12 @@ struct server {
     struct wl_listener request_cursor;
     struct wl_listener request_set_selection;
     struct wl_list keyboards;
+    /* Virtual input (tests only, SFWC_ENABLE_VIRTUAL_INPUT=1): any client could
+     * otherwise inject keystrokes. */
+    struct wlr_virtual_pointer_manager_v1 *virtual_pointer_mgr;
+    struct wlr_virtual_keyboard_manager_v1 *virtual_keyboard_mgr;
+    struct wl_listener new_virtual_pointer;
+    struct wl_listener new_virtual_keyboard;
     enum cursor_mode cursor_mode;
     struct toplevel *grabbed_toplevel;
     double grab_x, grab_y;
@@ -453,6 +461,15 @@ static void keyboard_handle_destroy(struct wl_listener *listener, void *data)
     free(keyboard);
 }
 
+static void update_seat_capabilities(struct server *server)
+{
+    uint32_t caps = WL_SEAT_CAPABILITY_POINTER;
+    if (!wl_list_empty(&server->keyboards)) {
+        caps |= WL_SEAT_CAPABILITY_KEYBOARD;
+    }
+    wlr_seat_set_capabilities(server->seat, caps);
+}
+
 static void server_new_keyboard(struct server *server, struct wlr_keyboard *wlr_keyboard)
 {
     struct keyboard *keyboard = calloc(1, sizeof(*keyboard));
@@ -475,6 +492,9 @@ static void server_new_keyboard(struct server *server, struct wlr_keyboard *wlr_
 
     wlr_seat_set_keyboard(server->seat, keyboard->wlr_keyboard);
     wl_list_insert(&server->keyboards, &keyboard->link);
+
+    /* A window focused before any keyboard existed never got keyboard.enter. */
+    focus_toplevel(top_visible(server));
 }
 
 static void server_new_pointer(struct server *server, struct wlr_input_device *device)
@@ -496,11 +516,23 @@ static void server_new_input(struct wl_listener *listener, void *data)
     default:
         break;
     }
-    uint32_t caps = WL_SEAT_CAPABILITY_POINTER;
-    if (!wl_list_empty(&server->keyboards)) {
-        caps |= WL_SEAT_CAPABILITY_KEYBOARD;
-    }
-    wlr_seat_set_capabilities(server->seat, caps);
+    update_seat_capabilities(server);
+}
+
+static void server_new_virtual_pointer(struct wl_listener *listener, void *data)
+{
+    struct server *server = wl_container_of(listener, server, new_virtual_pointer);
+    struct wlr_virtual_pointer_v1_new_pointer_event *event = data;
+    server_new_pointer(server, &event->new_pointer->pointer.base);
+    update_seat_capabilities(server);
+}
+
+static void server_new_virtual_keyboard(struct wl_listener *listener, void *data)
+{
+    struct server *server = wl_container_of(listener, server, new_virtual_keyboard);
+    struct wlr_virtual_keyboard_v1 *vkbd = data;
+    server_new_keyboard(server, &vkbd->keyboard);
+    update_seat_capabilities(server);
 }
 
 static void seat_request_cursor(struct wl_listener *listener, void *data)
@@ -1093,6 +1125,19 @@ int main(int argc, char *argv[])
     server.request_set_selection.notify = seat_request_set_selection;
     wl_signal_add(&server.seat->events.request_set_selection, &server.request_set_selection);
 
+    const char *vinput = getenv("SFWC_ENABLE_VIRTUAL_INPUT");
+    if (vinput && strcmp(vinput, "1") == 0) {
+        wlr_log(WLR_INFO, "virtual input protocols enabled (testing)");
+        server.virtual_pointer_mgr = wlr_virtual_pointer_manager_v1_create(server.display);
+        server.new_virtual_pointer.notify = server_new_virtual_pointer;
+        wl_signal_add(&server.virtual_pointer_mgr->events.new_virtual_pointer,
+                      &server.new_virtual_pointer);
+        server.virtual_keyboard_mgr = wlr_virtual_keyboard_manager_v1_create(server.display);
+        server.new_virtual_keyboard.notify = server_new_virtual_keyboard;
+        wl_signal_add(&server.virtual_keyboard_mgr->events.new_virtual_keyboard,
+                      &server.new_virtual_keyboard);
+    }
+
     const char *socket = wl_display_add_socket_auto(server.display);
     if (!socket) {
         wlr_backend_destroy(server.backend);
@@ -1124,6 +1169,10 @@ int main(int argc, char *argv[])
     wl_list_remove(&server.request_cursor.link);
     wl_list_remove(&server.request_set_selection.link);
     wl_list_remove(&server.new_output.link);
+    if (server.virtual_pointer_mgr) {
+        wl_list_remove(&server.new_virtual_pointer.link);
+        wl_list_remove(&server.new_virtual_keyboard.link);
+    }
 
     wlr_scene_node_destroy(&server.scene->tree.node);
     wlr_xcursor_manager_destroy(server.cursor_mgr);

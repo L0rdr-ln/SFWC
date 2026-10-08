@@ -6,7 +6,7 @@ SFWC="$1"; CLIENT="$2"
 
 TMP="$(mktemp -d)"
 export XDG_RUNTIME_DIR="$TMP"; chmod 700 "$TMP"
-export WLR_BACKENDS=headless WLR_RENDERER=pixman
+export WLR_BACKENDS=headless WLR_RENDERER=pixman SFWC_ENABLE_VIRTUAL_INPUT=1
 export ASAN_OPTIONS=detect_leaks=0:detect_odr_violation=0
 LOG="$TMP/sfwc.log"
 
@@ -38,5 +38,6 @@ wait "$PID"; STATUS=$?
 grep -q "output .* added" "$LOG"    || fail "no output was created"
 grep -q "window mapped.*sfwc-test-window" "$LOG" || fail "window was never mapped"
 grep -q "window minimized" "$LOG"   || fail "minimize request was not handled"
+grep -q "window restored" "$LOG"    || fail "restore (Alt+Shift+m) was not handled"
 grep -q "window unmapped" "$LOG"    || fail "window was never unmapped"
 echo "client test passed"

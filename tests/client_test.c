@@ -15,12 +15,19 @@
 #include <sys/mman.h>
 #include <unistd.h>
 
+#include <linux/input-event-codes.h>
 #include <wayland-client.h>
 #include "xdg-shell-client-protocol.h"
+#ifdef HAVE_VIRTUAL_INPUT
+#include <xkbcommon/xkbcommon.h>
+#include "virtual-keyboard-unstable-v1-client-protocol.h"
+#include "wlr-virtual-pointer-unstable-v1-client-protocol.h"
+#endif
 
 #define W 200
 #define H 100
 #define GAP 8 /* must match GAP in src/main.c */
+#define SNAP 12 /* must match SNAP_DISTANCE in src/main.c */
 
 struct app {
     struct wl_compositor *compositor;
@@ -45,6 +52,23 @@ struct app {
     int popup_configured;
 
     int frame_done;
+
+    /* seat + input observed by this client */
+    struct wl_seat *seat;
+    struct wl_keyboard *keyboard;
+    struct wl_pointer *pointer;
+    int kb_enter, kb_leave;       /* counters */
+    int key_presses[256];         /* key press events received, by key code */
+    int ptr_enter, ptr_motion, ptr_button_press, ptr_button_release;
+    double ptr_sx, ptr_sy;        /* last pointer position, surface-local */
+    int closed_seen;
+#ifdef HAVE_VIRTUAL_INPUT
+    struct zwlr_virtual_pointer_manager_v1 *vptr_mgr;
+    struct zwp_virtual_keyboard_manager_v1 *vkbd_mgr;
+    struct zwlr_virtual_pointer_v1 *vptr;
+    struct zwp_virtual_keyboard_v1 *vkbd;
+    uint32_t t; /* fake timestamp, ms */
+#endif
 };
 
 static void fail(const char *msg)
@@ -139,6 +163,102 @@ static void frame_done(void *data, struct wl_callback *cb, uint32_t time)
 }
 static const struct wl_callback_listener frame_listener = {.done = frame_done};
 
+static void kb_keymap(void *d, struct wl_keyboard *k, uint32_t fmt, int32_t fd, uint32_t size)
+{
+    close(fd);
+}
+static void kb_enter(void *data, struct wl_keyboard *k, uint32_t serial, struct wl_surface *s,
+                     struct wl_array *keys)
+{
+    ((struct app *)data)->kb_enter++;
+}
+static void kb_leave(void *data, struct wl_keyboard *k, uint32_t serial, struct wl_surface *s)
+{
+    ((struct app *)data)->kb_leave++;
+}
+static void kb_key(void *data, struct wl_keyboard *k, uint32_t serial, uint32_t time, uint32_t key,
+                   uint32_t state)
+{
+    struct app *app = data;
+    if (state == WL_KEYBOARD_KEY_STATE_PRESSED && key < 256) {
+        app->key_presses[key]++;
+    }
+}
+static void kb_modifiers(void *d, struct wl_keyboard *k, uint32_t serial, uint32_t a, uint32_t b,
+                         uint32_t c, uint32_t g)
+{
+}
+static void kb_repeat(void *d, struct wl_keyboard *k, int32_t rate, int32_t delay) {}
+static const struct wl_keyboard_listener keyboard_listener = {
+    .keymap = kb_keymap,
+    .enter = kb_enter,
+    .leave = kb_leave,
+    .key = kb_key,
+    .modifiers = kb_modifiers,
+    .repeat_info = kb_repeat,
+};
+
+static void ptr_enter(void *data, struct wl_pointer *p, uint32_t serial, struct wl_surface *s,
+                      wl_fixed_t x, wl_fixed_t y)
+{
+    struct app *app = data;
+    app->ptr_enter++;
+    app->ptr_sx = wl_fixed_to_double(x);
+    app->ptr_sy = wl_fixed_to_double(y);
+}
+static void ptr_leave(void *d, struct wl_pointer *p, uint32_t serial, struct wl_surface *s) {}
+static void ptr_motion(void *data, struct wl_pointer *p, uint32_t time, wl_fixed_t x, wl_fixed_t y)
+{
+    struct app *app = data;
+    app->ptr_motion++;
+    app->ptr_sx = wl_fixed_to_double(x);
+    app->ptr_sy = wl_fixed_to_double(y);
+}
+static void ptr_button(void *data, struct wl_pointer *p, uint32_t serial, uint32_t time,
+                       uint32_t button, uint32_t state)
+{
+    struct app *app = data;
+    if (state == WL_POINTER_BUTTON_STATE_PRESSED) {
+        app->ptr_button_press++;
+    } else {
+        app->ptr_button_release++;
+    }
+}
+static void ptr_axis(void *d, struct wl_pointer *p, uint32_t t, uint32_t a, wl_fixed_t v) {}
+static void ptr_frame(void *d, struct wl_pointer *p) {}
+static void ptr_axis_source(void *d, struct wl_pointer *p, uint32_t s) {}
+static void ptr_axis_stop(void *d, struct wl_pointer *p, uint32_t t, uint32_t a) {}
+static void ptr_axis_discrete(void *d, struct wl_pointer *p, uint32_t a, int32_t x) {}
+static const struct wl_pointer_listener pointer_listener = {
+    .enter = ptr_enter,
+    .leave = ptr_leave,
+    .motion = ptr_motion,
+    .button = ptr_button,
+    .axis = ptr_axis,
+    .frame = ptr_frame,
+    .axis_source = ptr_axis_source,
+    .axis_stop = ptr_axis_stop,
+    .axis_discrete = ptr_axis_discrete,
+};
+
+static void seat_capabilities(void *data, struct wl_seat *seat, uint32_t caps)
+{
+    struct app *app = data;
+    if ((caps & WL_SEAT_CAPABILITY_KEYBOARD) && !app->keyboard) {
+        app->keyboard = wl_seat_get_keyboard(seat);
+        wl_keyboard_add_listener(app->keyboard, &keyboard_listener, app);
+    }
+    if ((caps & WL_SEAT_CAPABILITY_POINTER) && !app->pointer) {
+        app->pointer = wl_seat_get_pointer(seat);
+        wl_pointer_add_listener(app->pointer, &pointer_listener, app);
+    }
+}
+static void seat_name(void *d, struct wl_seat *s, const char *n) {}
+static const struct wl_seat_listener seat_listener = {
+    .capabilities = seat_capabilities,
+    .name = seat_name,
+};
+
 static void output_geometry(void *d, struct wl_output *o, int32_t x, int32_t y, int32_t pw,
                             int32_t ph, int32_t sp, const char *make, const char *model, int32_t tr)
 {
@@ -169,6 +289,15 @@ static void registry_global(void *data, struct wl_registry *reg, uint32_t name,
         app->compositor = wl_registry_bind(reg, name, &wl_compositor_interface, 4);
     } else if (strcmp(interface, wl_shm_interface.name) == 0) {
         app->shm = wl_registry_bind(reg, name, &wl_shm_interface, 1);
+    } else if (strcmp(interface, wl_seat_interface.name) == 0 && !app->seat) {
+        app->seat = wl_registry_bind(reg, name, &wl_seat_interface, version < 5 ? version : 5);
+        wl_seat_add_listener(app->seat, &seat_listener, app);
+#ifdef HAVE_VIRTUAL_INPUT
+    } else if (strcmp(interface, zwlr_virtual_pointer_manager_v1_interface.name) == 0) {
+        app->vptr_mgr = wl_registry_bind(reg, name, &zwlr_virtual_pointer_manager_v1_interface, 1);
+    } else if (strcmp(interface, zwp_virtual_keyboard_manager_v1_interface.name) == 0) {
+        app->vkbd_mgr = wl_registry_bind(reg, name, &zwp_virtual_keyboard_manager_v1_interface, 1);
+#endif
     } else if (strcmp(interface, wl_output_interface.name) == 0 && !app->output) {
         app->output = wl_registry_bind(reg, name, &wl_output_interface, 2);
         wl_output_add_listener(app->output, &output_listener, app);
@@ -223,6 +352,185 @@ static void expect_configure(struct app *app, struct wl_display *display, int ma
              what, app->cfg_max, app->cfg_fs, app->cfg_w, app->cfg_h, max, fs, w, h);
     fail(msg);
 }
+
+#ifdef HAVE_VIRTUAL_INPUT
+/* Modifier masks of the default xkb keymap. */
+#define MOD_SHIFT 0x1
+#define MOD_ALT 0x8
+
+static void send_keymap(struct app *app)
+{
+    struct xkb_context *ctx = xkb_context_new(XKB_CONTEXT_NO_FLAGS);
+    struct xkb_keymap *keymap = xkb_keymap_new_from_names(ctx, NULL, XKB_KEYMAP_COMPILE_NO_FLAGS);
+    if (!keymap) {
+        fail("cannot compile default xkb keymap");
+    }
+    char *str = xkb_keymap_get_as_string(keymap, XKB_KEYMAP_FORMAT_TEXT_V1);
+    size_t size = strlen(str) + 1;
+    int fd = memfd_create("sfwc-test-keymap", MFD_CLOEXEC);
+    if (fd < 0 || ftruncate(fd, size) < 0) {
+        fail("cannot create keymap file");
+    }
+    char *map = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+    memcpy(map, str, size);
+    munmap(map, size);
+    zwp_virtual_keyboard_v1_keymap(app->vkbd, WL_KEYBOARD_KEYMAP_FORMAT_XKB_V1, fd, size);
+    close(fd);
+    free(str);
+    xkb_keymap_unref(keymap);
+    xkb_context_unref(ctx);
+}
+
+static void vkey(struct app *app, struct wl_display *d, uint32_t mods, uint32_t key, int press)
+{
+    zwp_virtual_keyboard_v1_modifiers(app->vkbd, mods, 0, 0, 0);
+    zwp_virtual_keyboard_v1_key(app->vkbd, app->t += 10, key,
+                                press ? WL_KEYBOARD_KEY_STATE_PRESSED : WL_KEYBOARD_KEY_STATE_RELEASED);
+    wl_display_roundtrip(d);
+}
+
+/* Press and release `key` while `mods` are held (modifiers are set explicitly because
+ * virtual keyboards do not update xkb state from key events). */
+static void vtap(struct app *app, struct wl_display *d, uint32_t mods, uint32_t key)
+{
+    vkey(app, d, mods, key, 1);
+    vkey(app, d, mods, key, 0);
+    zwp_virtual_keyboard_v1_modifiers(app->vkbd, 0, 0, 0, 0);
+    wl_display_roundtrip(d);
+}
+
+static void vptr_move(struct app *app, struct wl_display *d, double x, double y)
+{
+    zwlr_virtual_pointer_v1_motion_absolute(app->vptr, app->t += 10, (uint32_t)x, (uint32_t)y,
+                                            app->out_w, app->out_h);
+    zwlr_virtual_pointer_v1_frame(app->vptr);
+    wl_display_roundtrip(d);
+}
+
+static void vptr_button(struct app *app, struct wl_display *d, uint32_t button, int press)
+{
+    zwlr_virtual_pointer_v1_button(app->vptr, app->t += 10, button,
+                                   press ? WL_POINTER_BUTTON_STATE_PRESSED
+                                         : WL_POINTER_BUTTON_STATE_RELEASED);
+    zwlr_virtual_pointer_v1_frame(app->vptr);
+    wl_display_roundtrip(d);
+}
+
+static void check_near(double got, double want, double tol, const char *what)
+{
+    if (got < want - tol || got > want + tol) {
+        char msg[200];
+        snprintf(msg, sizeof msg, "%s: got %.1f, wanted %.1f (+-%.0f)", what, got, want, tol);
+        fail(msg);
+    }
+}
+
+/* Alt+drag with the pointer already at (gx, gy) inside the window; ends at (ex, ey). */
+static void alt_drag(struct app *app, struct wl_display *d, uint32_t button, double gx, double gy,
+                     double ex, double ey)
+{
+    zwp_virtual_keyboard_v1_modifiers(app->vkbd, MOD_ALT, 0, 0, 0);
+    wl_display_roundtrip(d);
+    vptr_button(app, d, button, 1);
+    vptr_move(app, d, ex, ey);
+    vptr_button(app, d, button, 0);
+    zwp_virtual_keyboard_v1_modifiers(app->vkbd, 0, 0, 0, 0);
+    wl_display_roundtrip(d);
+}
+
+static void run_input_tests(struct app *app, struct wl_display *d)
+{
+    if (!app->vptr_mgr || !app->vkbd_mgr) {
+        fail("virtual input protocols missing (run with SFWC_ENABLE_VIRTUAL_INPUT=1)");
+    }
+    app->vkbd = zwp_virtual_keyboard_manager_v1_create_virtual_keyboard(app->vkbd_mgr, app->seat);
+    send_keymap(app);
+    app->vptr = zwlr_virtual_pointer_manager_v1_create_virtual_pointer(app->vptr_mgr, app->seat);
+    wl_display_roundtrip(d);
+    wl_display_roundtrip(d);
+    if (!app->keyboard || !app->pointer) {
+        fail("seat did not announce keyboard + pointer after virtual devices appeared");
+    }
+    wait_for(d, &app->kb_enter, 3000, "keyboard focus (wl_keyboard.enter) for the window");
+
+    /* 1. keyboard: a plain key reaches the focused window */
+    vtap(app, d, 0, KEY_A);
+    if (!app->key_presses[KEY_A]) {
+        fail("plain key press was not delivered to the focused window");
+    }
+
+    /* 2. Alt+f / Alt+F11 are handled by the compositor and not forwarded */
+    vtap(app, d, MOD_ALT, KEY_F);
+    expect_configure(app, d, 1, 0, app->out_w - 2 * GAP, app->out_h - 2 * GAP, "Alt+f maximizes");
+    vtap(app, d, MOD_ALT, KEY_F);
+    expect_configure(app, d, 0, 0, W, H, "Alt+f again restores");
+    vtap(app, d, MOD_ALT, KEY_F11);
+    expect_configure(app, d, 0, 1, app->out_w, app->out_h, "Alt+F11 fullscreen");
+    vtap(app, d, MOD_ALT, KEY_F11);
+    expect_configure(app, d, 0, 0, W, H, "Alt+F11 again restores");
+    if (app->key_presses[KEY_F] || app->key_presses[KEY_F11]) {
+        fail("compositor keybind leaked to the client");
+    }
+
+    /* 3. pointer: enter, motion and buttons reach the window */
+    const double gx = 120, gy = 90;
+    app->ptr_enter = 0;
+    vptr_move(app, d, gx, gy);
+    if (!app->ptr_enter) {
+        fail("pointer did not enter the window (is it under (120,90)?)");
+    }
+    double lx = app->ptr_sx, ly = app->ptr_sy; /* pointer position inside the window */
+    double ox = gx - lx, oy = gy - ly;         /* window origin on the output */
+    vptr_button(app, d, BTN_LEFT, 1);
+    vptr_button(app, d, BTN_LEFT, 0);
+    if (app->ptr_button_press != 1 || app->ptr_button_release != 1) {
+        fail("plain click was not delivered to the window");
+    }
+
+    /* 4. Alt+left-drag moves the window and is not forwarded to it */
+    alt_drag(app, d, BTN_LEFT, gx, gy, gx + 200, gy + 120);
+    if (app->ptr_button_press != 1) {
+        fail("Alt+drag click leaked to the client");
+    }
+    vptr_move(app, d, gx + 201, gy + 121);
+    check_near(app->ptr_sx, lx + 1, 3, "pointer x after moving window by +200");
+    check_near(app->ptr_sy, ly + 1, 3, "pointer y after moving window by +120");
+    ox += 200;
+    oy += 120;
+
+    /* 5. dragging near the left edge snaps the window to the gap */
+    double px = gx + 201, py = gy + 121;
+    double target_x = GAP + SNAP / 2; /* within snap distance of the edge */
+    double target_y = 100;
+    alt_drag(app, d, BTN_LEFT, px, py, px + (target_x - ox), py + (target_y - oy));
+    vptr_move(app, d, px + (target_x - ox) + 1, py + (target_y - oy) + 1);
+    check_near(app->ptr_sx, (px + (target_x - ox) + 1) - GAP, 3, "x after snapping to the left edge");
+    check_near(app->ptr_sy, (py + (target_y - oy) + 1) - target_y, 3, "y after move without snap");
+    ox = GAP;
+    oy = target_y;
+
+    /* 6. Alt+right-drag resizes (pointer in the bottom-right quadrant) */
+    double rx = ox + 150, ry = oy + 70;
+    vptr_move(app, d, rx, ry);
+    alt_drag(app, d, BTN_RIGHT, rx, ry, rx + 50, ry + 30);
+    expect_configure(app, d, 0, 0, W + 50, H + 30, "Alt+right-drag resizes by the drag distance");
+
+    /* 7. minimize and restore with the keyboard; keyboard focus follows */
+    int leaves = app->kb_leave, enters = app->kb_enter;
+    vtap(app, d, MOD_ALT, KEY_M);
+    if (app->kb_leave == leaves) {
+        fail("window kept keyboard focus after Alt+m");
+    }
+    vtap(app, d, MOD_ALT | MOD_SHIFT, KEY_M);
+    if (app->kb_enter == enters) {
+        fail("window did not get keyboard focus back after Alt+Shift+m");
+    }
+
+    /* 8. Alt+q asks the window to close */
+    vtap(app, d, MOD_ALT, KEY_Q);
+    wait_for(d, &app->closed, 3000, "xdg_toplevel.close after Alt+q");
+}
+#endif
 
 int main(void)
 {
@@ -295,6 +603,12 @@ int main(void)
     expect_configure(&app, display, 0, 1, app.out_w, app.out_h, "fullscreen");
     xdg_toplevel_unset_fullscreen(app.toplevel);
     expect_configure(&app, display, 0, 0, W, H, "leave fullscreen restores the old size");
+
+#ifdef HAVE_VIRTUAL_INPUT
+    run_input_tests(&app, display);
+#else
+    printf("client_test: virtual input tests skipped (protocol files unavailable)\n");
+#endif
 
     /* Minimize has no reply for the client; the compositor logs it. */
     xdg_toplevel_set_minimized(app.toplevel);
