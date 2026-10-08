@@ -4,7 +4,7 @@ Config is searched in this order: `$SFWC_CONFIG`,
 `$XDG_CONFIG_HOME/sfwc/sfwc.conf`, `~/.config/sfwc/sfwc.conf`,
 `/usr/share/sfwc/sfwc.conf`.
 
-Syntax: `[section]` headers, `key = value`, `#` comments. See
+Syntax: `[section]` headers, `key = value`, full-line `#`/`;` comments (no inline comments). See
 [config/sfwc.conf](../config/sfwc.conf) for a fully commented example.
 
 | Section | Key | Meaning |
@@ -14,6 +14,8 @@ Syntax: `[section]` headers, `key = value`, `#` comments. See
 | windows | snap_to_edges, snap_distance, gap | edge snapping behavior |
 | animations | enabled, open, close, move, resize, duration_ms, easing | animation behavior |
 | keybinds | `Mod+Key = action` | actions: `spawn:<cmd>`, `close`, `toggle-maximize`, `minimize`, `cycle-windows`, `reload-config`, `quit` |
+| autostart | `exec = <command>` | programs started with the compositor, after the theme is applied; `$theme.<key>` and `$runtime` expand |
+| templates | `<name> = on\|off` | enable/disable rendering of a theme template (e.g. `waybar = on`) |
 | mouse | `Mod+Button = move\|resize` | drag bindings |
 
 > Not yet implemented – this documents the target format.

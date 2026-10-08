@@ -10,3 +10,7 @@ meson install -C build-themes     # installs to <prefix>/share/sfwc/themes
 
 Or copy a `.theme` file into `~/.config/sfwc/themes/`. See
 [../docs/THEMES.md](../docs/THEMES.md) for the format.
+
+This package also ships `templates/` (see the templating section in
+[../docs/THEMES.md](../docs/THEMES.md)) so one theme can style waybar, fuzzel
+and swaybg too.

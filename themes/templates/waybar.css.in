@@ -1,0 +1,13 @@
+/* Generated from waybar.css.in by sfwc-theme-apply. Do not edit the output. */
+* {
+    font-family: "@font.family@";
+    font-size: @font.size@pt;
+}
+window#waybar {
+    background: @colors.titlebar_unfocused@;
+    color: @colors.title_text@;
+    border-bottom: @geometry.border_width@px solid @colors.border_unfocused@;
+}
+#workspaces button.focused {
+    border-bottom: @geometry.border_width@px solid @colors.border_focused@;
+}

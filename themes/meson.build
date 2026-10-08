@@ -4,3 +4,5 @@ project('sfwc-themes', version: '0.0.1', license: 'MIT', meson_version: '>=0.59.
 
 install_data('default.theme', 'light.theme',
   install_dir: get_option('datadir') / 'sfwc' / 'themes')
+
+install_subdir('templates', install_dir: get_option('datadir') / 'sfwc')

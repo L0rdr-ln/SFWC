@@ -1,0 +1,13 @@
+# Generated from fuzzel.ini.in by sfwc-theme-apply. Do not edit the output.
+[main]
+font=@font.family@:size=@font.size@
+
+[colors]
+background=@colors.titlebar_unfocused:hex@ff
+text=@colors.title_text:hex@ff
+selection=@colors.titlebar_focused:hex@ff
+border=@colors.border_focused:hex@ff
+
+[border]
+width=@geometry.border_width@
+radius=@geometry.corner_radius@

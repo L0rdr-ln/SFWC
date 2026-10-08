@@ -17,7 +17,8 @@ window decorations and animations.
 - **Themes** – colors, borders, title bars, corner radius, shadows and fonts
   defined in small theme files you can swap or share. Themes ship as a
   separate optional package ([`themes/`](themes/)); the compositor runs fine
-  with its built-in minimal look.
+  with its built-in minimal look. With the package installed, one theme can
+  also style your bar and launcher through templates.
 - **Animations** – configurable open/close/move/resize/workspace animations
   with adjustable duration and easing, or turn them off entirely.
 - **Small and readable** – written in C against wlroots; easy to hack on.
