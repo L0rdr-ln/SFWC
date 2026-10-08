@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
 # Starts sfwc on the headless backend, runs the test client against it and checks the
 # compositor's log and side effects.
-# Usage: run_client_test.sh <sfwc> <client_test> [single|multi|nested|deco|anim]
+# Usage: run_client_test.sh <sfwc> <client_test> [single|multi|nested|deco|anim|layers]
 #   single: one output, input, snapping, live config reload, autostart, terminal
 #   multi:  two outputs (different size/scale/position), follow-mouse, output actions,
 #           reload-config key (config file watching is switched off)
 #   deco:   server-side decorations drawn from a theme: screen captures are checked pixel by
 #           pixel, the frame is clicked and dragged, the theme is reloaded live
+#   layers: wlr-layer-shell: wallpaper, panel with an exclusive zone, overlay launcher with
+#           exclusive keyboard focus
 #   anim:   open/close/move animations (2 s, linear) checked with screen captures, then
 #           switched off by a live config reload
 #   nested: the single scenario, but sfwc runs with the wayland backend as a window of a
@@ -40,6 +42,9 @@ repeat_delay = 250
 exec = touch \$runtime/autostart-ran
 exec = echo "\$terminal \$theme" > \$runtime/autostart-expanded
 CONF
+    ;;
+layers)
+    : >"$SFWC_CONFIG"
     ;;
 anim)
     unset SFWC_NO_ANIMATIONS
@@ -175,6 +180,10 @@ grep -q "output .* added" "$LOG" || fail "no output was created"
 grep -q "window unmapped" "$LOG" || fail "window was never unmapped"
 
 case "$MODE" in
+layers)
+    grep -q "layer surface mapped: namespace=bar" "$LOG" || fail "the panel was never mapped"
+    grep -q "layer surface unmapped: namespace=launcher" "$LOG" || fail "the launcher was never unmapped"
+    ;;
 anim)
     grep -q "window mapped.*animated" "$LOG" || fail "window was never mapped"
     ;;

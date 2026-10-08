@@ -27,6 +27,7 @@
 #ifdef HAVE_VIRTUAL_INPUT
 #include <xkbcommon/xkbcommon.h>
 #include "virtual-keyboard-unstable-v1-client-protocol.h"
+#include "wlr-layer-shell-unstable-v1-client-protocol.h"
 #include "wlr-screencopy-unstable-v1-client-protocol.h"
 #include "wlr-virtual-pointer-unstable-v1-client-protocol.h"
 #endif
@@ -105,6 +106,7 @@ struct app {
 #ifdef HAVE_VIRTUAL_INPUT
     struct zwlr_virtual_pointer_manager_v1 *vptr_mgr;
     struct zwlr_screencopy_manager_v1 *screencopy_mgr;
+    struct zwlr_layer_shell_v1 *layer_shell;
     struct zwp_virtual_keyboard_manager_v1 *vkbd_mgr;
     struct zwlr_virtual_pointer_v1 *vptr;
     struct zwp_virtual_keyboard_v1 *vkbd;
@@ -386,6 +388,8 @@ static void registry_global(void *data, struct wl_registry *reg, uint32_t name,
     } else if (strcmp(interface, zxdg_output_manager_v1_interface.name) == 0) {
         app->xdg_out_mgr = wl_registry_bind(reg, name, &zxdg_output_manager_v1_interface, 2);
 #ifdef HAVE_VIRTUAL_INPUT
+    } else if (strcmp(interface, zwlr_layer_shell_v1_interface.name) == 0) {
+        app->layer_shell = wl_registry_bind(reg, name, &zwlr_layer_shell_v1_interface, 4);
     } else if (strcmp(interface, zwlr_screencopy_manager_v1_interface.name) == 0) {
         app->screencopy_mgr = wl_registry_bind(reg, name, &zwlr_screencopy_manager_v1_interface, 1);
     } else if (strcmp(interface, zwlr_virtual_pointer_manager_v1_interface.name) == 0) {
@@ -1412,6 +1416,158 @@ static void run_anim(struct app *app, struct wl_display *d)
     expect_px(&img, 600, 300, 0x000000, "no fade-out when animations are disabled");
     free(img.px);
 }
+
+/* ------------------------------------------------------- scenario: layers */
+
+struct lay {
+    struct app *app;
+    struct wl_surface *surface;
+    struct zwlr_layer_surface_v1 *ls;
+    struct wl_buffer *buf;
+    uint32_t color;
+    int configured, closed, w, h;
+};
+
+static void lay_configure(void *data, struct zwlr_layer_surface_v1 *ls, uint32_t serial,
+                          uint32_t w, uint32_t h)
+{
+    struct lay *l = data;
+    zwlr_layer_surface_v1_ack_configure(ls, serial);
+    if (w > 0 && h > 0 && (l->w != (int)w || l->h != (int)h)) {
+        struct wl_buffer *nb = make_buffer(l->app->shm, w, h, l->color);
+        wl_surface_attach(l->surface, nb, 0, 0);
+        wl_surface_commit(l->surface);
+        if (l->buf) {
+            wl_buffer_destroy(l->buf);
+        }
+        l->buf = nb;
+        l->w = w;
+        l->h = h;
+    }
+    l->configured = 1;
+}
+static void lay_closed(void *data, struct zwlr_layer_surface_v1 *ls)
+{
+    ((struct lay *)data)->closed = 1;
+}
+static const struct zwlr_layer_surface_v1_listener lay_listener = {
+    .configure = lay_configure,
+    .closed = lay_closed,
+};
+
+static void lay_open(struct app *app, struct wl_display *d, struct lay *l, uint32_t layer,
+                     uint32_t anchor, int w, int h, int zone, uint32_t kbd, uint32_t color,
+                     const char *ns)
+{
+    memset(l, 0, sizeof *l);
+    l->app = app;
+    l->color = color;
+    l->surface = wl_compositor_create_surface(app->compositor);
+    l->ls = zwlr_layer_shell_v1_get_layer_surface(app->layer_shell, l->surface, NULL, layer, ns);
+    zwlr_layer_surface_v1_add_listener(l->ls, &lay_listener, l);
+    zwlr_layer_surface_v1_set_size(l->ls, w, h);
+    zwlr_layer_surface_v1_set_anchor(l->ls, anchor);
+    zwlr_layer_surface_v1_set_exclusive_zone(l->ls, zone);
+    zwlr_layer_surface_v1_set_keyboard_interactivity(l->ls, kbd);
+    wl_surface_commit(l->surface);
+    wait_for(d, &l->configured, 3000, "layer surface configure");
+    wl_display_roundtrip(d);
+}
+
+static void lay_close(struct wl_display *d, struct lay *l)
+{
+    zwlr_layer_surface_v1_destroy(l->ls);
+    wl_surface_destroy(l->surface);
+    if (l->buf) {
+        wl_buffer_destroy(l->buf);
+    }
+    wl_display_roundtrip(d);
+}
+
+#define C_WALLPAPER 0x102030
+#define C_BAR 0xaa5500
+#define C_OVERLAY 0x00aa55
+
+static void run_layers(struct app *app, struct wl_display *d)
+{
+    if (!app->layer_shell) {
+        fail("compositor does not offer wlr-layer-shell");
+    }
+    app->ext_w = app->out_w;
+    app->ext_h = app->out_h;
+    setup_virtual_devices(app, d, 0);
+
+    /* wallpaper (background, fills the output) and a 30px panel on top that reserves space */
+    struct lay wall, bar;
+    lay_open(app, d, &wall, ZWLR_LAYER_SHELL_V1_LAYER_BACKGROUND,
+             ZWLR_LAYER_SURFACE_V1_ANCHOR_TOP | ZWLR_LAYER_SURFACE_V1_ANCHOR_BOTTOM |
+                 ZWLR_LAYER_SURFACE_V1_ANCHOR_LEFT | ZWLR_LAYER_SURFACE_V1_ANCHOR_RIGHT,
+             0, 0, -1, ZWLR_LAYER_SURFACE_V1_KEYBOARD_INTERACTIVITY_NONE, 0xff000000u | C_WALLPAPER,
+             "wallpaper");
+    lay_open(app, d, &bar, ZWLR_LAYER_SHELL_V1_LAYER_TOP,
+             ZWLR_LAYER_SURFACE_V1_ANCHOR_TOP | ZWLR_LAYER_SURFACE_V1_ANCHOR_LEFT |
+                 ZWLR_LAYER_SURFACE_V1_ANCHOR_RIGHT,
+             0, 30, 30, ZWLR_LAYER_SURFACE_V1_KEYBOARD_INTERACTIVITY_NONE, 0xff000000u | C_BAR,
+             "bar");
+    if (wall.w != 1280 || wall.h != 720 || bar.w != 1280 || bar.h != 30) {
+        char msg[120];
+        snprintf(msg, sizeof msg, "layer surfaces were sized %dx%d (wallpaper) and %dx%d (bar)", wall.w,
+                 wall.h, bar.w, bar.h);
+        fail(msg);
+    }
+    struct image img = capture_screen(app, d);
+    expect_px(&img, 600, 10, C_BAR, "panel is drawn at the top");
+    expect_px(&img, 600, 400, C_WALLPAPER, "wallpaper fills the rest of the output");
+    free(img.px);
+
+    /* the panel reserves its 30px: a maximized window starts below it */
+    struct win a;
+    win_open_ex(app, d, &a, "below the panel", 0xff000000u | C_CLIENT, 0, 1);
+    wait_for(d, &app->kb_enter, 3000, "keyboard focus for the window");
+    vtap(app, d, MOD_ALT, KEY_F);
+    win_expect(&a, d, 1, 0, 1264, 720 - 30 - 16, "maximized window avoids the panel");
+    wl_display_roundtrip(d);
+    img = capture_screen(app, d);
+    expect_px(&img, 600, 20, C_BAR, "the window does not cover the panel");
+    expect_px(&img, 600, 34, C_WALLPAPER, "gap between the panel and the window");
+    expect_px(&img, 600, 100, C_CLIENT, "window content below the panel");
+    free(img.px);
+
+    /* the pointer reaches the panel */
+    app->ptr_enter = 0;
+    vptr_move(app, d, 600, 10);
+    if (!app->ptr_enter) {
+        fail("pointer did not enter the panel");
+    }
+
+    /* a launcher on the overlay layer with exclusive keyboard focus takes the keyboard and
+     * gives it back when it goes away */
+    struct lay launcher;
+    lay_open(app, d, &launcher, ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY, 0, 200, 100, 0,
+             ZWLR_LAYER_SURFACE_V1_KEYBOARD_INTERACTIVITY_EXCLUSIVE, 0xff000000u | C_OVERLAY, "launcher");
+    wl_display_roundtrip(d);
+    img = capture_screen(app, d);
+    expect_px(&img, 640, 360, C_OVERLAY, "overlay launcher is centred on top of everything");
+    free(img.px);
+    if (app->kb_surface != launcher.surface) {
+        fail("exclusive launcher did not get the keyboard focus");
+    }
+    lay_close(d, &launcher);
+    if (app->kb_surface != a.surface) {
+        fail("keyboard focus did not return to the window after the launcher closed");
+    }
+
+    /* closing the panel gives the space back */
+    lay_close(d, &bar);
+    win_expect(&a, d, 1, 0, 1264, 704, "maximized window grows when the panel goes away");
+    wl_display_roundtrip(d);
+    img = capture_screen(app, d);
+    expect_px(&img, 600, 20, C_CLIENT, "window now reaches the top");
+    free(img.px);
+
+    win_destroy(d, &a);
+    lay_close(d, &wall);
+}
 #endif
 
 /* --------------------------------------------------------------- main */
@@ -1422,8 +1578,9 @@ int main(int argc, char **argv)
     int multi = !strcmp(mode, "multi");
     int deco = !strcmp(mode, "deco");
     int anim = !strcmp(mode, "anim");
-    if (!multi && !deco && !anim && strcmp(mode, "single") != 0) {
-        fail("unknown mode (use single, multi, deco or anim)");
+    int layers = !strcmp(mode, "layers");
+    if (!multi && !deco && !anim && !layers && strcmp(mode, "single") != 0) {
+        fail("unknown mode (use single, multi, deco, anim or layers)");
     }
 
     struct app app = {0};
@@ -1459,6 +1616,16 @@ int main(int argc, char **argv)
 #endif
     }
 
+    if (layers) {
+#ifdef HAVE_VIRTUAL_INPUT
+        run_layers(&app, display);
+        wl_display_disconnect(display);
+        printf("client_test layers: OK\n");
+        return 0;
+#else
+        fail("the layers scenario needs the wlroots protocol files");
+#endif
+    }
     if (anim) {
 #ifdef HAVE_VIRTUAL_INPUT
         run_anim(&app, display);
