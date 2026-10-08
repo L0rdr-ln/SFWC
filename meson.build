@@ -76,9 +76,14 @@ if get_option('compositor')
     input: xdg_shell_xml,
     output: 'xdg-shell-protocol.h',
     command: [wayland_scanner, 'server-header', '@INPUT@', '@OUTPUT@'])
+  # wlr_layer_shell_v1.h includes the server header of the wlr-layer-shell protocol.
+  layer_shell_h = custom_target('wlr-layer-shell-unstable-v1-protocol.h',
+    input: 'subprojects/wlroots/protocol/wlr-layer-shell-unstable-v1.xml',
+    output: 'wlr-layer-shell-unstable-v1-protocol.h',
+    command: [wayland_scanner, 'server-header', '@INPUT@', '@OUTPUT@'])
 
   sfwc_exe = executable('sfwc',
-    'src/main.c', xdg_shell_h,
+    'src/main.c', xdg_shell_h, layer_shell_h,
     dependencies: [wlroots, wayland_server, xkbcommon, libm, libdrm, config_dep, theme_dep, deco_dep, anim_dep],
     c_args: ['-Wno-unused-parameter'],
     install: true)
