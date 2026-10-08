@@ -1,0 +1,8 @@
+# Generated from mako.conf.in by sfwc-theme-apply. Do not edit the output.
+# Use it with:  mako --config $XDG_RUNTIME_DIR/sfwc/mako.conf
+font=@font.family@ @font.size@
+background-color=@colors.titlebar_unfocused@
+text-color=@colors.title_text@
+border-color=@colors.border_focused@
+border-size=@geometry.border_width@
+border-radius=@geometry.corner_radius@

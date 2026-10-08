@@ -1,0 +1,11 @@
+# Generated from swaylock.conf.in by sfwc-theme-apply. Do not edit the output.
+# Use it with:  swaylock --config $XDG_RUNTIME_DIR/sfwc/swaylock.conf
+font=@font.family@
+font-size=@font.size@
+color=@colors.background:hex@
+inside-color=@colors.titlebar_unfocused:hex@
+line-color=@colors.border_unfocused:hex@
+ring-color=@colors.border_unfocused:hex@
+key-hl-color=@colors.border_focused:hex@
+bs-hl-color=@colors.close_button:hex@
+text-color=@colors.title_text:hex@

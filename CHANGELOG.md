@@ -6,6 +6,9 @@ Versions follow the roadmap milestones while the project is pre-1.0:
 ## Unreleased – M3 "Configuration" and M1–M3 completion
 
 ### Added
+- Theme templating (M6): `sfwc-theme-apply` renders `@section.key@` templates (waybar, fuzzel,
+  foot, mako, swaylock) into `$XDG_RUNTIME_DIR/sfwc/` on start and reload; `[templates]`
+  config section; theme placeholders in `spawn:` and `[autostart]` commands.
 - Workspaces (`workspaces = N`, `workspace:N`, `move-to-workspace:N`, defaults on `$mod+1..4`).
 - `ext-session-lock` for screen lockers.
 - `wlr-layer-shell`: panels, wallpapers and launchers (M5). Exclusive zones shrink the area used

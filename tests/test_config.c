@@ -263,6 +263,22 @@ static void test_keyboard_and_outputs(void)
     CHECK(b && b->action == ACTION_FOCUS_OUTPUT);
     config_finish(&c);
 
+    /* [templates] */
+    config_init_defaults(&c);
+    CHECK(c.templates_enabled && c.n_templates_off == 0);
+    CHECK(config_load_string(&c, "[templates]\nwaybar = false\nfuzzel = false\nfuzzel = true\nfoot = no\n", NULL, NULL));
+    CHECK(c.templates_enabled && c.n_templates_off == 2);
+    int has_waybar = 0, has_foot = 0, has_fuzzel = 0;
+    for (size_t i = 0; i < c.n_templates_off; i++) {
+        has_waybar |= !strcmp(c.templates_off[i], "waybar");
+        has_foot |= !strcmp(c.templates_off[i], "foot");
+        has_fuzzel |= !strcmp(c.templates_off[i], "fuzzel");
+    }
+    CHECK(has_waybar && has_foot && !has_fuzzel);
+    CHECK(config_load_string(&c, "[templates]\nenabled = false\nbad name = true\n", NULL, NULL));
+    CHECK(!c.templates_enabled);
+    config_finish(&c);
+
     /* workspaces */
     config_init_defaults(&c);
     CHECK(c.workspaces == 4);

@@ -73,37 +73,60 @@ How it is used:
 
 ## One theme for the whole desktop (templating)
 
-A theme styles more than SFWC's own window decorations. It can also drive the
-companion tools (status bar, launcher, lock screen, ...) so you maintain one
-file instead of one per tool.
+A theme styles more than SFWC's own window decorations. It also drives the companion tools
+(status bar, launcher, lock screen, notifications, terminal) so you maintain one file instead
+of one per tool.
 
 How it works:
 
-1. The theme package ships **templates** in `templates/`, named after the
-   output file plus `.in` (for example `waybar.css.in`, `fuzzel.ini.in`).
-2. Templates contain placeholders that refer to theme keys as
-   `@section.key@`, e.g. `@colors.border_focused@`, `@font.family@`.
-   A modifier selects a format: `@colors.border_focused:hex@` gives `89b4fa`
-   (no `#`), for tools that want bare hex. Unknown placeholders are an error.
-3. The helper **`sfwc-theme-apply`** renders every template of the active
-   theme into `$XDG_RUNTIME_DIR/sfwc/` (never `/tmp`), e.g.
-   `$XDG_RUNTIME_DIR/sfwc/waybar.css`.
-4. SFWC runs the helper on startup and on `reload-config`, then tells running
-   tools to pick up changes (Waybar: `SIGUSR2`; swaybg, fuzzel: respawn/next
-   launch).
+1. The theme package ships **templates** in `templates/`, named after the output file plus
+   `.in` (`waybar.css.in`, `fuzzel.ini.in`, `foot.ini.in`, `mako.conf.in`,
+   `swaylock.conf.in`).
+2. Templates contain placeholders `@section.key@` for theme keys, e.g.
+   `@colors.border_focused@`, `@geometry.border_width@`, `@font.family@`, `@theme.name@`.
+   Colors print as `#rrggbb` (`#rrggbbaa` when not opaque); a modifier picks another format:
+   `@colors.border_focused:hex@` = `89b4fa`, `:hexa` = `89b4faff`, `:rgb` = `137, 180, 250`,
+   `:rgba` = `rgba(137, 180, 250, 1.00)`. `@@` is a literal `@`. An unknown key, an unknown
+   modifier or a lone `@` is an error that names the file and line; the other templates are
+   still rendered.
+3. The helper **`sfwc-theme-apply`** (part of the compositor package) renders every template
+   into `$XDG_RUNTIME_DIR/sfwc/` (never `/tmp`), e.g. `$XDG_RUNTIME_DIR/sfwc/waybar.css`, and
+   only rewrites files whose content changed. Template directories, first match wins:
+   `<config dir>/themes/<theme>/templates`, `<config dir>/templates`,
+   `~/.config/sfwc/templates`, `~/.local/share/sfwc/templates`,
+   `/usr/local/share/sfwc/templates`, `/usr/share/sfwc/templates` (so you can override a
+   packaged template, and a theme can bring its own). `SFWC_TEMPLATES=dir[:dir]` replaces the
+   list (development).
+4. The compositor runs the helper on startup and on every config reload, before it starts the
+   `[autostart]` programs. Waybar is sent `SIGUSR2` and mako `makoctl reload` when their output
+   changed; other tools pick the files up on their next start.
+
+Using the output:
+
+| Tool | Output | How to use it |
+|---|---|---|
+| waybar | `waybar.css` | `@import url("/run/user/1000/sfwc/waybar.css");` in `style.css` |
+| fuzzel | `fuzzel.ini` | `fuzzel --config $XDG_RUNTIME_DIR/sfwc/fuzzel.ini` |
+| foot | `foot.ini` | `include=/run/user/1000/sfwc/foot.ini` in `foot.ini` |
+| mako | `mako.conf` | `mako --config $XDG_RUNTIME_DIR/sfwc/mako.conf` |
+| swaylock | `swaylock.conf` | `swaylock --config $XDG_RUNTIME_DIR/sfwc/swaylock.conf` |
+| swaybg | (no file) | `exec = swaybg -c @colors.background:hex@` |
+
+The last row shows that the same `@section.key@` placeholders also work in `spawn:` binds and
+`[autostart]` commands (only placeholders that name a theme key are replaced, so `ssh me@host`
+is safe). Switch templates off with `[templates]` in the config (`enabled = false`, or
+`waybar = false` for one of them).
 
 Why templates and not C code in the compositor:
 
 - The compositor stays small and does not need to know any tool's file format.
 - Supporting a new tool = adding a template, no recompiling.
 - A theme can ship its own templates, so it can restyle more than colors.
-- Tools you don't use, or configure yourself, are simply skipped (`[templates]`
-  in the config can enable/disable each one).
+- Tools you don't use, or configure yourself, are simply skipped.
 
-Scope for the first version: colors, fonts, border width and corner radius for
-**waybar, fuzzel and swaybg**. Layout and module configuration of the tools
-stays in the user's own config files. Tool config formats change over time, so
-templates are versioned together with the theme package.
+Scope: colors, fonts, border width and corner radius. Layout and module configuration of the
+tools stays in the user's own config files. Tool config formats change over time, so templates
+are versioned together with the theme package.
 
-Config parsing rule: comments are full-line only (`#` or `;` at line start).
-Inline comments are not supported, so `#rrggbb` values need no escaping.
+Config parsing rule: comments are full-line only (`#` or `;` at line start). Inline comments
+are not supported, so `#rrggbb` values need no escaping.

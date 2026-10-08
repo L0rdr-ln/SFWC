@@ -28,6 +28,8 @@ are safe. Booleans: `true/false/yes/no/on/off/1/0`.
 | Section | Key | Values / default | Meaning |
 |---|---|---|---|
 | general | `workspaces` | 1-9, `4` | number of workspaces; every window lives on exactly one, new windows open on the current one |
+| templates | `enabled` | bool, `true` | render the theme's templates for waybar, fuzzel, ... with `sfwc-theme-apply` on start and reload |
+| templates | `<name>` | bool | `waybar = false` switches one template off (name = file name before the first dot) |
 | general | `theme` | name, `default` | theme name (themes arrive with the theme package) |
 | general | `terminal` | command, `$SFWC_TERMINAL` or `foot` | used by `$terminal` |
 | general | `focus` | `click` (default), `follow-mouse` | follow-mouse focuses without raising |
@@ -64,7 +66,7 @@ $mod+Shift+m = restore-minimized
 
 | Action | Effect |
 |---|---|
-| `spawn:<command>` | run a command via `/bin/sh -c` (`$terminal`, `$theme`, `$runtime`, `$$` are expanded) |
+| `spawn:<command>` | run a command via `/bin/sh -c` (`$terminal`, `$theme`, `$runtime`, `$$` and theme placeholders such as `@colors.background:hex@` are expanded) |
 | `close` | ask the focused window to close |
 | `toggle-maximize` / `toggle-fullscreen` | toggle for the focused window |
 | `minimize` / `restore-minimized` | hide the focused window / bring back the last hidden one |

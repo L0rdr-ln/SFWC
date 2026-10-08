@@ -82,12 +82,13 @@ are roughly in build order; check them off as they land.
 - [x] Screenshots / screen capture (screencopy), clipboard, primary selection, data-control
 
 ## M6 – Themes and templating  *(separate `sfwc-themes` package)*
-- [ ] Add `format = 1` to the theme format and check it on load
-- [ ] `sfwc-theme-apply` helper: placeholders `@section.key@`, `:hex` modifier
-- [ ] Templates for waybar, fuzzel, swaybg (colors/fonts/borders only)
-- [ ] Compositor runs the helper on start and reload, signals running tools
-- [ ] Expand theme values (`$theme.<key>`) in `[autostart]` commands
-- [ ] More tools (swaylock, mako, terminal colors) and more themes
+- [x] Add `format = 1` to the theme format and check it on load
+- [x] `sfwc-theme-apply` helper: placeholders `@section.key@`, `:hex`/`:hexa`/`:rgb`/`:rgba` modifiers
+- [x] Templates for waybar, fuzzel (swaybg via placeholders in the command)
+- [x] Compositor runs the helper on start and reload, signals running tools
+- [x] Expand theme values (`@section.key@`) in `[autostart]` and `spawn:` commands
+- [x] More tools: swaylock, mako, foot
+- [ ] More themes
 - [ ] Move `themes/` to its own repo once format and templates are stable
 
 ## M7 – Release

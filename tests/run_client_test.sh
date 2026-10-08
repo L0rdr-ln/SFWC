@@ -41,7 +41,12 @@ repeat_delay = 250
 [autostart]
 exec = touch \$runtime/autostart-ran
 exec = echo "\$terminal \$theme" > \$runtime/autostart-expanded
+exec = echo @colors.background:hex@ @font.family@ me@host > \$runtime/autostart-theme
 CONF
+    # a template for sfwc-theme-apply, which the compositor runs at startup
+    mkdir -p "$TMP/tpl"
+    printf 'bg=@colors.background@ width=@geometry.border_width@\n' >"$TMP/tpl/probe.txt.in"
+    export SFWC_TEMPLATES="$TMP/tpl"
     ;;
 layers|workspaces|lock)
     : >"$SFWC_CONFIG"
@@ -203,9 +208,11 @@ single|nested)
     grep -q "window mapped.*sfwc-test-window" "$LOG" || fail "window was never mapped"
     grep -q "sfwc.conf:4: snap_distance" "$LOG" || fail "invalid config line was not reported with its line number"
     [ "$(grep -c 'config loaded' "$LOG")" -ge 2 ] || fail "config was not loaded at startup and again on live reload"
-    for _ in $(seq 1 20); do [ -e "$TMP/autostart-expanded" ] && [ -e "$TMP/terminal-ran" ] && break; sleep 0.1; done
+    for _ in $(seq 1 20); do [ -e "$TMP/autostart-expanded" ] && [ -e "$TMP/autostart-theme" ] && [ -e "$TMP/terminal-ran" ] && break; sleep 0.1; done
     [ -e "$TMP/autostart-ran" ] || fail "autostart command did not run"
     [ "$(cat "$TMP/autostart-expanded" 2>/dev/null)" = "touch $TMP/terminal-ran default" ] || fail "autostart \$terminal/\$theme/\$runtime were not expanded"
+    [ "$(cat "$TMP/autostart-theme" 2>/dev/null)" = "1e1e2e sans me@host" ] || fail "theme placeholders in autostart were not expanded: $(cat "$TMP/autostart-theme" 2>/dev/null)"
+    [ "$(cat "$TMP/sfwc/probe.txt" 2>/dev/null)" = "bg=#1e1e2e width=2" ] || fail "sfwc-theme-apply did not render the probe template: $(cat "$TMP/sfwc/probe.txt" 2>/dev/null)"
     [ -e "$TMP/terminal-ran" ] || fail "Alt+Return did not run the configured terminal"
     grep -q "window minimized" "$LOG" || fail "minimize request was not handled"
     grep -q "window restored" "$LOG" || fail "restore (Alt+Shift+m) was not handled"

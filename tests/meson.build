@@ -17,6 +17,14 @@ test_deco = executable('test_deco', 'test_deco.c',
   dependencies: [deco_dep, fontconfig])
 test('decoration-rendering', test_deco)
 
+test_template = executable('test_template', 'test_template.c', dependencies: [template_dep, theme_dep])
+test('template-rendering', test_template)
+
+test('theme-apply-helper', find_program('sh'), args: [files('test_apply.sh'), theme_apply_exe])
+
+test('shipped-templates', find_program('sh'),
+  args: [files('test_shipped_templates.sh'), theme_apply_exe, meson.project_source_root()])
+
 test_anim = executable('test_anim', 'test_anim.c', dependencies: [anim_dep, libm])
 test('animation-math', test_anim)
 

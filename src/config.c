@@ -128,6 +128,7 @@ void config_init_defaults(struct config *c)
     c->terminal = xstrdup(term && *term ? term : "foot");
     c->mod = CFG_MOD_ALT;
     c->workspaces = 4;
+    c->templates_enabled = true;
     c->focus = FOCUS_CLICK;
     c->snap_to_edges = true;
     c->snap_to_windows = true;
@@ -193,6 +194,10 @@ void config_finish(struct config *c)
     clear_binds(c);
     clear_mbinds(c);
     clear_autostart(c);
+    for (size_t i = 0; i < c->n_templates_off; i++) {
+        free(c->templates_off[i]);
+    }
+    free(c->templates_off);
     memset(c, 0, sizeof *c);
 }
 
@@ -630,7 +635,35 @@ static int config_ini_cb(void *user, const char *section, const char *name, cons
             l->c->autostart[l->c->n_autostart++] = xstrdup(value);
         }
     } else if (!strcmp(section, "templates")) {
-        /* theme templating arrives with the theme package; accept silently */
+        struct config *c = l->c;
+        if (!strcmp(name, "enabled")) {
+            set_bool(l, name, value, &c->templates_enabled);
+            return 1;
+        }
+        bool on = true;
+        bool ok = *name != 0;
+        for (const char *p = name; *p; p++) {
+            ok = ok && (isalnum((unsigned char)*p) || *p == '_' || *p == '-');
+        }
+        if (!ok) {
+            report(l, CONFIG_WARNING, "[templates]: '%s' is not a template name", name);
+            return 1;
+        }
+        if (!parse_bool(value, &on)) {
+            report(l, CONFIG_ERROR, "%s: '%s' is not a boolean (use true/false)", name, value);
+            return 1;
+        }
+        size_t i = 0;
+        while (i < c->n_templates_off && strcmp(c->templates_off[i], name) != 0) {
+            i++;
+        }
+        if (on && i < c->n_templates_off) { /* last line wins */
+            free(c->templates_off[i]);
+            c->templates_off[i] = c->templates_off[--c->n_templates_off];
+        } else if (!on && i == c->n_templates_off) {
+            c->templates_off = xrealloc(c->templates_off, (c->n_templates_off + 1) * sizeof(char *));
+            c->templates_off[c->n_templates_off++] = xstrdup(name);
+        }
     } else if (strcmp(l->unknown_section, section) != 0) {
         snprintf(l->unknown_section, sizeof l->unknown_section, "%s", section);
         report(l, CONFIG_WARNING, "unknown section [%s] ignored", section);

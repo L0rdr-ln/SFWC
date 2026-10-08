@@ -44,6 +44,16 @@ theme_dep = declare_dependency(
 
 libm = meson.get_compiler('c').find_library('m')
 
+template_lib = static_library('sfwc_template', 'src/template.c', dependencies: [theme_dep, libm])
+template_dep = declare_dependency(
+  link_with: template_lib,
+  include_directories: include_directories('src'),
+  dependencies: [theme_dep, libm])
+
+# Renders the theme's templates for waybar, fuzzel, ... (does not need wlroots).
+theme_apply_exe = executable('sfwc-theme-apply', 'src/sfwc-theme-apply.c',
+  dependencies: [template_dep, theme_dep], install: true)
+
 anim_lib = static_library('sfwc_anim', 'src/anim.c')
 anim_dep = declare_dependency(
   link_with: anim_lib,

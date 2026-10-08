@@ -1,0 +1,11 @@
+# Generated from foot.ini.in by sfwc-theme-apply. Do not edit the output.
+# Use it from ~/.config/foot/foot.ini with:  include=/run/user/<uid>/sfwc/foot.ini
+[main]
+font=@font.family@:size=@font.size@
+
+[colors]
+background=@colors.background:hex@
+foreground=@colors.title_text:hex@
+selection-background=@colors.titlebar_focused:hex@
+selection-foreground=@colors.title_text:hex@
+urls=@colors.border_focused:hex@

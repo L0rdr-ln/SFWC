@@ -92,6 +92,10 @@ struct config {
     size_t n_mbinds;
     char **autostart;
     size_t n_autostart;
+    /* [templates]: render the theme's templates for the companion tools */
+    bool templates_enabled;
+    char **templates_off; /* names switched off individually (waybar = false) */
+    size_t n_templates_off;
 };
 
 enum { CONFIG_WARNING = INI_WARNING, CONFIG_ERROR = INI_ERROR };
