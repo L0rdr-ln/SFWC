@@ -1,8 +1,20 @@
 name: release
-# Pushing a tag like v0.2.0 creates a GitHub release with notes from CHANGELOG.md.
+# Creates a GitHub release with notes from CHANGELOG.md, either when a tag like
+# v0.2.0 is pushed, or by hand (Actions > release > Run workflow) with a tag name and
+# the commit to release; in that case GitHub creates the tag at that commit.
 on:
   push:
     tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag, e.g. v0.2.0'
+        required: true
+      commit:
+        description: 'Commit SHA to release (must have passed CI)'
+        required: true
+env:
+  TAG: ${{ inputs.tag || github.ref_name }}
 permissions:
   contents: write
 jobs:
@@ -10,26 +22,29 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.commit || github.sha }}
       - name: Check the tag matches the project version
         run: |
-          TAG="${GITHUB_REF_NAME#v}"
+          T="${TAG#v}"
           VER="$(sed -n "s/^ *version: '\(.*\)',/\1/p" meson.build | head -n1)"
-          [ "$TAG" = "$VER" ] || { echo "tag $TAG != meson.build version $VER"; exit 1; }
+          [ "$T" = "$VER" ] || { echo "tag $TAG != meson.build version $VER"; exit 1; }
       - name: Extract release notes
         run: |
-          awk -v tag="$GITHUB_REF_NAME" '
+          awk -v tag="$TAG" '
             $0 ~ "^## " tag " " { p=1; next }
             /^## / && p { exit }
             p { print }' CHANGELOG.md > notes.md
-          [ -s notes.md ] || { echo "no CHANGELOG.md section for $GITHUB_REF_NAME"; exit 1; }
+          [ -s notes.md ] || { echo "no CHANGELOG.md section for $TAG"; exit 1; }
       - name: Create source archive
         run: |
-          NAME="sfwc-${GITHUB_REF_NAME#v}"
-          git archive --format=tar.gz --prefix="$NAME/" -o "$NAME.tar.gz" "$GITHUB_REF_NAME"
+          NAME="sfwc-${TAG#v}"
+          git archive --format=tar.gz --prefix="$NAME/" -o "$NAME.tar.gz" HEAD
           sha256sum "$NAME.tar.gz" > "$NAME.tar.gz.sha256"
       - name: Create GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$GITHUB_REF_NAME" sfwc-*.tar.gz sfwc-*.tar.gz.sha256 \
-            --title "SFWC ${GITHUB_REF_NAME}" --notes-file notes.md --prerelease --verify-tag
+          gh release create "$TAG" sfwc-*.tar.gz sfwc-*.tar.gz.sha256 \
+            --target "$(git rev-parse HEAD)" \
+            --title "SFWC ${TAG}" --notes-file notes.md --prerelease
