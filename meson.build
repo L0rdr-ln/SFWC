@@ -13,11 +13,22 @@ inih = static_library('inih', 'third_party/inih/ini.c',
     '-DINI_ALLOW_MULTILINE=0',
     '-DINI_STOP_ON_FIRST_ERROR=0',
     '-DINI_USE_STACK=1',
+    '-DINI_MAX_LINE=1024',
   ],
   include_directories: include_directories('third_party/inih'))
 inih_dep = declare_dependency(
   link_with: inih,
   include_directories: include_directories('third_party/inih'))
+
+xkbcommon = dependency('xkbcommon')
+
+# Config parsing, independent of wlroots so it can be unit-tested everywhere.
+config_lib = static_library('sfwc_config', 'src/config.c',
+  dependencies: [inih_dep, xkbcommon])
+config_dep = declare_dependency(
+  link_with: config_lib,
+  include_directories: include_directories('src'),
+  dependencies: [inih_dep, xkbcommon])
 
 if get_option('compositor')
   # Uses the system wlroots 0.18 if present, otherwise builds it from
@@ -25,7 +36,6 @@ if get_option('compositor')
   wlroots = dependency('wlroots-0.18', fallback: ['wlroots', 'wlroots_dep'],
     default_options: ['examples=false'])
   wayland_server = dependency('wayland-server')
-  xkbcommon = dependency('xkbcommon')
   libm = meson.get_compiler('c').find_library('m')
 
   # wlroots headers include xdg-shell-protocol.h, which we generate ourselves.
@@ -39,7 +49,7 @@ if get_option('compositor')
 
   sfwc_exe = executable('sfwc',
     'src/main.c', xdg_shell_h,
-    dependencies: [wlroots, wayland_server, xkbcommon, libm, inih_dep],
+    dependencies: [wlroots, wayland_server, xkbcommon, libm, config_dep],
     c_args: ['-Wno-unused-parameter'],
     install: true)
 

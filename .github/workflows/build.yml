@@ -6,7 +6,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-      - run: sudo apt-get update && sudo apt-get install -y meson ninja-build gcc
+      - run: sudo apt-get update && sudo apt-get install -y meson ninja-build gcc pkg-config libxkbcommon-dev
       - run: meson setup build-test -Dcompositor=false -Db_sanitize=address,undefined -Db_lundef=false
       - run: meson test -C build-test --print-errorlogs
 

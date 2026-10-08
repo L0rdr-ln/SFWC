@@ -3,6 +3,11 @@ test_ini = executable('test_ini', 'test_ini.c',
   c_args: ['-DSRC_ROOT="' + meson.project_source_root() + '"'])
 test('config-and-theme-parsing', test_ini)
 
+test_config = executable('test_config', 'test_config.c',
+  dependencies: config_dep,
+  c_args: ['-DSRC_ROOT="' + meson.project_source_root() + '"'])
+test('config-parser', test_config)
+
 if get_option('compositor')
   # End-to-end: run sfwc headless and talk to it with a real Wayland client.
   wayland_client = dependency('wayland-client')

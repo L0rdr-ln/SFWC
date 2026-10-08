@@ -356,6 +356,7 @@ static void expect_configure(struct app *app, struct wl_display *display, int ma
 #ifdef HAVE_VIRTUAL_INPUT
 /* Modifier masks of the default xkb keymap. */
 #define MOD_SHIFT 0x1
+#define MOD_CTRL 0x4
 #define MOD_ALT 0x8
 
 static void send_keymap(struct app *app)
@@ -526,8 +527,45 @@ static void run_input_tests(struct app *app, struct wl_display *d)
         fail("window did not get keyboard focus back after Alt+Shift+m");
     }
 
-    /* 8. Alt+q asks the window to close */
-    vtap(app, d, MOD_ALT, KEY_Q);
+    /* 7b. live reload: replace the config file atomically (as editors do); the new
+     * modifier, keybinds and gap must take effect without restarting the compositor */
+    const char *cfg_path = getenv("SFWC_CONFIG");
+    if (!cfg_path) {
+        fail("SFWC_CONFIG is not set (run through tests/run_client_test.sh)");
+    }
+    char tmp_path[600];
+    snprintf(tmp_path, sizeof tmp_path, "%s.tmp", cfg_path);
+    FILE *cf = fopen(tmp_path, "w");
+    if (!cf) {
+        fail("cannot write the new config");
+    }
+    fputs("[general]\nmod = Ctrl\n[windows]\ngap = 20\n[keybinds]\n"
+          "$mod+x = toggle-maximize\n$mod+q = close\n",
+          cf);
+    fclose(cf);
+    if (rename(tmp_path, cfg_path) != 0) {
+        fail("cannot replace the config file");
+    }
+    /* the compositor notices asynchronously: retry until the new binding works */
+    app->cfg_max = 0;
+    for (int i = 0; i < 40 && !app->cfg_max; i++) {
+        vtap(app, d, MOD_CTRL, KEY_X);
+        if (!app->cfg_max) {
+            usleep(100 * 1000);
+        }
+    }
+    expect_configure(app, d, 1, 0, app->out_w - 40, app->out_h - 40,
+                     "Ctrl+x maximizes with the reloaded gap of 20");
+    vtap(app, d, MOD_CTRL, KEY_X);
+    expect_configure(app, d, 0, 0, W, H, "Ctrl+x again restores");
+    int f_before = app->key_presses[KEY_F];
+    vtap(app, d, MOD_ALT, KEY_F); /* no longer bound: must reach the client */
+    if (app->key_presses[KEY_F] != f_before + 1) {
+        fail("old Alt+f binding still active after reload (key should reach the client)");
+    }
+
+    /* 8. the reloaded close binding (Ctrl+q) asks the window to close */
+    vtap(app, d, MOD_CTRL, KEY_Q);
     wait_for(d, &app->closed, 3000, "xdg_toplevel.close after Alt+q");
 }
 #endif

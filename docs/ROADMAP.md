@@ -43,11 +43,19 @@ are roughly in build order; check them off as they land.
       click passthrough, Alt+drag move, snapping, Alt+right-drag resize, Alt+m /
       Alt+Shift+m with keyboard focus handover, Alt+q close (`tests/client_test.c`)
 
-## M3 – Configuration
-- [ ] Config parser, defaults, error messages with line numbers
-- [ ] Keybind and mouse-bind tables from config
-- [ ] Live reload (inotify on config dir) and `reload-config` action
-- [ ] `[autostart]` with `$theme.*` / `$runtime` expansion
+## M3 – Configuration  *(implemented; tested by unit tests and the end-to-end test)*
+- [x] Config parser (`src/config.c`, independent of wlroots): defaults, validation,
+      error messages with line numbers, unit tests incl. the shipped example config
+- [x] Keybind and mouse-bind tables from config (`$mod`, modifiers, any xkb key name,
+      `spawn:<cmd>` and the built-in actions); last definition wins; sections replace defaults
+- [x] `gap`, `snap_distance`, `snap_to_edges`, `focus` (click | follow-mouse), `terminal`
+      are config; the old hard-coded constants are gone
+- [x] Live reload (inotify on the config directory) and the `reload-config` action;
+      unreadable file keeps the old config; maximized windows are re-fitted
+- [x] `[autostart]` with `$terminal`, `$theme`, `$runtime` expansion
+- [ ] Expanding individual theme values (`$theme.<key>`) moves to M6 (templating)
+- [ ] Test `focus = follow-mouse` and `reload-config` via key in the end-to-end test
+- [ ] Keyboard layout / repeat rate and per-output settings in the config
 
 ## M4 – Look and feel
 - [ ] Built-in fallback theme

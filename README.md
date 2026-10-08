@@ -45,9 +45,10 @@ meson test -C build
 Running nested (easiest for development): start `sfwc` from a terminal inside
 an existing Wayland session and it opens in a window.
 
-## Current keybindings
+## Default keybindings
 
-Hard-coded until the config milestone (modifier is Alt so it works when nested):
+These are the built-in defaults (modifier is Alt so it works when nested); all of them can be
+changed in the config, see [docs/CONFIGURATION.md](docs/CONFIGURATION.md):
 
 | Keys | Action |
 |---|---|
@@ -57,6 +58,7 @@ Hard-coded until the config milestone (modifier is Alt so it works when nested):
 | Alt+f / Alt+F11 | toggle maximize / fullscreen |
 | Alt+m / Alt+Shift+m | minimize / restore last minimized |
 | Alt+drag (left / right button) | move / resize window |
+| Alt+Shift+r | reload the config |
 | Alt+Esc | quit |
 
 ## Configuration
@@ -65,7 +67,7 @@ Copy the example config and edit it:
 
 ```sh
 mkdir -p ~/.config/sfwc
-cp config/sfwc.conf ~/.config/sfwc/sfwc.conf
+cp config/sfwc.conf ~/.config/sfwc/sfwc.conf   # optional; saving the file reloads it live
 ```
 
 Themes are optional and installed separately, see [themes/README.md](themes/README.md).

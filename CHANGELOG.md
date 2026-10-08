@@ -3,6 +3,18 @@
 Versions follow the roadmap milestones while the project is pre-1.0:
 `0.<milestone>.0` (v0.2.0 = M2). Dates are UTC.
 
+## Unreleased – M3 "Configuration"
+
+### Added
+- Config file (`~/.config/sfwc/sfwc.conf` or `$SFWC_CONFIG`): gap, snapping, focus mode,
+  terminal, configurable keybinds and mouse binds (`$mod`, any xkb key, `spawn:<cmd>`),
+  `[autostart]` commands. Errors are logged with line numbers and never stop the compositor.
+- Live reload when the file is saved, plus the `reload-config` action (Alt+Shift+r).
+- `src/config.c` parser with unit tests; end-to-end test covers reload and autostart.
+
+### Changed
+- Keybinds match the exact modifier set and the unshifted key (`Shift+m` instead of `M`).
+
 ## v0.2.0 – 2026-10-08 – "Usable floating WM" (alpha)
 
 First tagged release. A small wlroots 0.18 compositor that opens, stacks, moves,

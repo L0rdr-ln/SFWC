@@ -7,17 +7,12 @@
  * Config, themes, decorations and animations come in later milestones
  * (see docs/ROADMAP.md). Structure follows wlroots' tinywl example.
  *
- * Built-in keybinds (modifier: Alt, so it works when nested in another
- * compositor that owns Super):
- *   Alt+Return  spawn terminal ($SFWC_TERMINAL, default "foot")
- *   Alt+q       close focused window
- *   Alt+Tab     cycle windows
- *   Alt+f       toggle maximize
- *   Alt+F11     toggle fullscreen
- *   Alt+m       minimize focused window
- *   Alt+Shift+m restore the most recently minimized window
- *   Alt+Escape  quit
- *   Alt+LMB     move window, Alt+RMB resize window
+ * Configuration: sfwc.conf (see config/sfwc.conf and src/config.c). Without a
+ * config file the built-in defaults apply: modifier Alt (works when nested in
+ * another compositor that owns Super), Return terminal, q close, Tab cycle,
+ * f maximize, F11 fullscreen, m minimize, Shift+m restore, Shift+r reload,
+ * Escape quit, mod+Left/Right drag = move/resize. The config is reloaded when
+ * the file is saved.
  */
 #define _POSIX_C_SOURCE 200809L
 #include <assert.h>
@@ -27,6 +22,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/inotify.h>
 #include <sys/wait.h>
 #include <time.h>
 #include <unistd.h>
@@ -55,10 +51,14 @@
 #include <wlr/util/log.h>
 #include <xkbcommon/xkbcommon.h>
 
-#define BIND_MODIFIER WLR_MODIFIER_ALT
-#define GAP 8            /* px between windows/maximized windows and screen edge */
-#define SNAP_DISTANCE 12 /* px within which a moved window snaps to screen edges */
+#include "config.h"
+
 #define CASCADE_STEP 32
+
+/* config.h uses its own copy of the modifier bits; they must match wlroots. */
+_Static_assert(CFG_MOD_SHIFT == WLR_MODIFIER_SHIFT && CFG_MOD_CTRL == WLR_MODIFIER_CTRL &&
+                   CFG_MOD_ALT == WLR_MODIFIER_ALT && CFG_MOD_LOGO == WLR_MODIFIER_LOGO,
+               "modifier bits differ from wlroots");
 
 enum cursor_mode {
     CURSOR_PASSTHROUGH,
@@ -104,6 +104,12 @@ struct server {
     struct wlr_box grab_geobox;
     uint32_t resize_edges;
     int cascade; /* offset of the next new window */
+
+    struct config config;
+    char *config_path; /* NULL: no config location, defaults only */
+    char *config_name; /* basename of config_path, matched against inotify events */
+    int inotify_fd;
+    struct wl_event_source *inotify_source;
 
     struct wlr_output_layout *output_layout;
     struct wl_list outputs;
@@ -238,7 +244,7 @@ static void toplevel_apply_state(struct toplevel *t, bool max, bool fs)
 
     struct wlr_box box = output_box_at(t->server, ref.x + ref.width / 2.0, ref.y + ref.height / 2.0);
     if ((fs || max) && box.width > 0) {
-        int inset = fs ? 0 : GAP;
+        int inset = fs ? 0 : t->server->config.gap;
         toplevel_move_to(t, box.x + inset, box.y + inset);
         wlr_xdg_toplevel_set_size(t->xdg_toplevel, box.width - 2 * inset, box.height - 2 * inset);
     } else if (!fs && !max) {
@@ -268,26 +274,27 @@ static void place_new_toplevel(struct toplevel *t)
         y = box.y + 48 + server->cascade;
         server->cascade = (server->cascade + CASCADE_STEP) % (6 * CASCADE_STEP);
     }
-    int max_x = box.x + box.width - GAP - geo.width;
-    int max_y = box.y + box.height - GAP - geo.height;
+    int gap = server->config.gap;
+    int max_x = box.x + box.width - gap - geo.width;
+    int max_y = box.y + box.height - gap - geo.height;
     if (x > max_x) {
         x = max_x;
     }
     if (y > max_y) {
         y = max_y;
     }
-    if (x < box.x + GAP) {
-        x = box.x + GAP;
+    if (x < box.x + gap) {
+        x = box.x + gap;
     }
-    if (y < box.y + GAP) {
-        y = box.y + GAP;
+    if (y < box.y + gap) {
+        y = box.y + gap;
     }
     toplevel_move_to(t, x, y);
 }
 
 /* -------------------------------------------------------------- focusing */
 
-static void focus_toplevel(struct toplevel *toplevel)
+static void focus_toplevel_ex(struct toplevel *toplevel, bool raise)
 {
     if (toplevel == NULL) {
         return;
@@ -307,16 +314,22 @@ static void focus_toplevel(struct toplevel *toplevel)
     }
     struct wlr_keyboard *keyboard = wlr_seat_get_keyboard(seat);
 
-    /* Raise to the top of the stacking order. */
-    wlr_scene_node_raise_to_top(&toplevel->scene_tree->node);
-    wl_list_remove(&toplevel->link);
-    wl_list_insert(&server->toplevels, &toplevel->link);
+    if (raise) { /* raise to the top of the stacking order */
+        wlr_scene_node_raise_to_top(&toplevel->scene_tree->node);
+        wl_list_remove(&toplevel->link);
+        wl_list_insert(&server->toplevels, &toplevel->link);
+    }
     wlr_xdg_toplevel_set_activated(toplevel->xdg_toplevel, true);
 
     if (keyboard != NULL) {
         wlr_seat_keyboard_notify_enter(seat, surface, keyboard->keycodes, keyboard->num_keycodes,
                                        &keyboard->modifiers);
     }
+}
+
+static void focus_toplevel(struct toplevel *toplevel)
+{
+    focus_toplevel_ex(toplevel, true);
 }
 
 
@@ -355,25 +368,27 @@ static void toplevel_set_minimized(struct toplevel *t, bool minimize)
 
 /* ------------------------------------------------------------- keyboard */
 
-static bool handle_keybinding(struct server *server, xkb_keysym_t sym)
+static void reload_config(struct server *server);
+
+static void dispatch_action(struct server *server, enum action action, const char *arg)
 {
-    switch (sym) {
-    case XKB_KEY_Escape:
+    struct toplevel *top = top_visible(server);
+    switch (action) {
+    case ACTION_QUIT:
         wl_display_terminate(server->display);
-        return true;
-    case XKB_KEY_Return: {
-        const char *term = getenv("SFWC_TERMINAL");
-        spawn(term && *term ? term : "foot");
-        return true;
+        break;
+    case ACTION_SPAWN: {
+        char *cmd = config_expand(&server->config, arg, getenv("XDG_RUNTIME_DIR"));
+        spawn(cmd);
+        free(cmd);
+        break;
     }
-    case XKB_KEY_q: {
-        struct toplevel *top = top_visible(server);
+    case ACTION_CLOSE:
         if (top) {
             wlr_xdg_toplevel_send_close(top->xdg_toplevel);
         }
-        return true;
-    }
-    case XKB_KEY_Tab: {
+        break;
+    case ACTION_CYCLE: {
         /* Focus the bottom-most visible window, which raises it. */
         struct toplevel *t;
         wl_list_for_each_reverse(t, &server->toplevels, link) {
@@ -382,30 +397,24 @@ static bool handle_keybinding(struct server *server, xkb_keysym_t sym)
                 break;
             }
         }
-        return true;
+        break;
     }
-    case XKB_KEY_f: {
-        struct toplevel *top = top_visible(server);
+    case ACTION_TOGGLE_MAXIMIZE:
         if (top) {
             toplevel_apply_state(top, !top->maximized, false);
         }
-        return true;
-    }
-    case XKB_KEY_F11: {
-        struct toplevel *top = top_visible(server);
+        break;
+    case ACTION_TOGGLE_FULLSCREEN:
         if (top) {
             toplevel_apply_state(top, top->maximized, !top->fullscreen);
         }
-        return true;
-    }
-    case XKB_KEY_m: {
-        struct toplevel *top = top_visible(server);
+        break;
+    case ACTION_MINIMIZE:
         if (top) {
             toplevel_set_minimized(top, true);
         }
-        return true;
-    }
-    case XKB_KEY_M: { /* Alt+Shift+m */
+        break;
+    case ACTION_RESTORE: {
         struct toplevel *t;
         wl_list_for_each_reverse(t, &server->toplevels, link) {
             if (t->minimized) {
@@ -413,11 +422,26 @@ static bool handle_keybinding(struct server *server, xkb_keysym_t sym)
                 break;
             }
         }
-        return true;
+        break;
     }
-    default:
-        return false;
+    case ACTION_RELOAD:
+        reload_config(server);
+        break;
+    case ACTION_MOVE:
+    case ACTION_RESIZE:
+        break; /* mouse-only */
     }
+}
+
+/* The key's symbol at shift level 0 ("m" even when Shift is held), so that bindings
+ * are written as modifiers + the unshifted key. */
+static xkb_keysym_t base_keysym(struct wlr_keyboard *kb, xkb_keycode_t code)
+{
+    struct xkb_keymap *map = xkb_state_get_keymap(kb->xkb_state);
+    xkb_layout_index_t layout = xkb_state_key_get_layout(kb->xkb_state, code);
+    const xkb_keysym_t *syms;
+    int n = xkb_keymap_key_get_syms_by_level(map, code, layout, 0, &syms);
+    return n > 0 ? syms[0] : XKB_KEY_NoSymbol;
 }
 
 static void keyboard_handle_modifiers(struct wl_listener *listener, void *data)
@@ -435,14 +459,15 @@ static void keyboard_handle_key(struct wl_listener *listener, void *data)
     struct wlr_seat *seat = server->seat;
 
     uint32_t keycode = event->keycode + 8; /* libinput -> xkb */
-    const xkb_keysym_t *syms;
-    int nsyms = xkb_state_key_get_syms(keyboard->wlr_keyboard->xkb_state, keycode, &syms);
 
     bool handled = false;
-    uint32_t modifiers = wlr_keyboard_get_modifiers(keyboard->wlr_keyboard);
-    if ((modifiers & BIND_MODIFIER) && event->state == WL_KEYBOARD_KEY_STATE_PRESSED) {
-        for (int i = 0; i < nsyms; i++) {
-            handled |= handle_keybinding(server, syms[i]);
+    if (event->state == WL_KEYBOARD_KEY_STATE_PRESSED) {
+        uint32_t modifiers = wlr_keyboard_get_modifiers(keyboard->wlr_keyboard);
+        const struct keybind *bind = config_find_keybind(
+            &server->config, modifiers, base_keysym(keyboard->wlr_keyboard, keycode));
+        if (bind) {
+            dispatch_action(server, bind->action, bind->arg);
+            handled = true;
         }
     }
     if (!handled) {
@@ -625,18 +650,20 @@ static void process_cursor_move(struct server *server)
     struct wlr_box geo = {0};
     wlr_xdg_surface_get_geometry(toplevel->xdg_toplevel->base, &geo);
     struct wlr_box box = output_box_at(server, server->cursor->x, server->cursor->y);
-    if (box.width > 0) {
+    if (box.width > 0 && server->config.snap_to_edges) {
         double x = nx + geo.x, y = ny + geo.y;
-        double left = box.x + GAP, right = box.x + box.width - GAP - geo.width;
-        double top = box.y + GAP, bottom = box.y + box.height - GAP - geo.height;
-        if (fabs(x - left) < SNAP_DISTANCE) {
+        int gap = server->config.gap;
+        double snap = server->config.snap_distance;
+        double left = box.x + gap, right = box.x + box.width - gap - geo.width;
+        double top = box.y + gap, bottom = box.y + box.height - gap - geo.height;
+        if (fabs(x - left) < snap) {
             x = left;
-        } else if (fabs(x - right) < SNAP_DISTANCE) {
+        } else if (fabs(x - right) < snap) {
             x = right;
         }
-        if (fabs(y - top) < SNAP_DISTANCE) {
+        if (fabs(y - top) < snap) {
             y = top;
-        } else if (fabs(y - bottom) < SNAP_DISTANCE) {
+        } else if (fabs(y - bottom) < snap) {
             y = bottom;
         }
         nx = x - geo.x;
@@ -701,6 +728,8 @@ static void process_cursor_motion(struct server *server, uint32_t time)
         toplevel_at(server, server->cursor->x, server->cursor->y, &surface, &sx, &sy);
     if (!toplevel) {
         wlr_cursor_set_xcursor(server->cursor, server->cursor_mgr, "default");
+    } else if (server->config.focus == FOCUS_FOLLOW_MOUSE) {
+        focus_toplevel_ex(toplevel, false); /* focus without raising */
     }
     if (surface) {
         wlr_seat_pointer_notify_enter(seat, surface, sx, sy);
@@ -745,10 +774,10 @@ static void cursor_button(struct wl_listener *listener, void *data)
 
     struct wlr_keyboard *keyboard = wlr_seat_get_keyboard(server->seat);
     uint32_t mods = keyboard ? wlr_keyboard_get_modifiers(keyboard) : 0;
-    if (toplevel && (mods & BIND_MODIFIER) &&
-        (event->button == BTN_LEFT || event->button == BTN_RIGHT)) {
-        /* Alt+drag: do not forward the click to the client. */
-        if (event->button == BTN_LEFT) {
+    const struct mousebind *mbind = config_find_mousebind(&server->config, mods, event->button);
+    if (toplevel && mbind) {
+        /* modifier+drag: do not forward the click to the client. */
+        if (mbind->action == ACTION_MOVE) {
             begin_interactive(toplevel, CURSOR_MOVE, 0);
         } else {
             struct wlr_box geo;
@@ -1010,6 +1039,110 @@ static void server_new_xdg_popup(struct wl_listener *listener, void *data)
     wl_signal_add(&xdg_popup->events.destroy, &popup->destroy);
 }
 
+/* --------------------------------------------------------------- config */
+
+static void config_log_cb(int level, int line, const char *msg, void *data)
+{
+    struct server *server = data;
+    if (level == CONFIG_ERROR) {
+        wlr_log(WLR_ERROR, "config %s:%d: %s", server->config_path, line, msg);
+    } else {
+        wlr_log(WLR_INFO, "config %s:%d: warning: %s", server->config_path, line, msg);
+    }
+}
+
+/* Re-read the config file. A file that cannot be read keeps the current config; invalid
+ * entries inside a readable file are reported and fall back to their defaults. */
+static void reload_config(struct server *server)
+{
+    if (!server->config_path) {
+        wlr_log(WLR_INFO, "no config file location known, nothing to reload");
+        return;
+    }
+    struct config fresh;
+    config_init_defaults(&fresh);
+    if (!config_load_file(&fresh, server->config_path, config_log_cb, server)) {
+        wlr_log(WLR_ERROR, "cannot read %s, keeping the current configuration",
+                server->config_path);
+        config_finish(&fresh);
+        return;
+    }
+    config_finish(&server->config);
+    server->config = fresh;
+    wlr_log(WLR_INFO, "config loaded: %s", server->config_path);
+
+    /* windows that are fitted to the output depend on the gap */
+    struct toplevel *t;
+    wl_list_for_each(t, &server->toplevels, link) {
+        if (t->maximized || t->fullscreen) {
+            toplevel_apply_state(t, t->maximized, t->fullscreen);
+        }
+    }
+}
+
+/* Editors save by writing a temp file and renaming it, so watch the directory. */
+static int handle_config_event(int fd, uint32_t mask, void *data)
+{
+    struct server *server = data;
+    char buf[4096] __attribute__((aligned(__alignof__(struct inotify_event))));
+    bool changed = false;
+    ssize_t n;
+    while ((n = read(fd, buf, sizeof buf)) > 0) {
+        for (char *p = buf; p < buf + n;) {
+            struct inotify_event *ev = (struct inotify_event *)p;
+            if (ev->len && strcmp(ev->name, server->config_name) == 0) {
+                changed = true;
+            }
+            p += sizeof(*ev) + ev->len;
+        }
+    }
+    if (changed) {
+        reload_config(server);
+    }
+    return 0;
+}
+
+static void init_config(struct server *server, struct wl_event_loop *loop)
+{
+    config_init_defaults(&server->config);
+    server->inotify_fd = -1;
+    server->config_path = config_default_path();
+    if (!server->config_path) {
+        wlr_log(WLR_INFO, "no HOME/XDG_CONFIG_HOME, using built-in defaults");
+        return;
+    }
+    if (config_load_file(&server->config, server->config_path, config_log_cb, server)) {
+        wlr_log(WLR_INFO, "config loaded: %s", server->config_path);
+    } else {
+        wlr_log(WLR_INFO, "no config file at %s, using built-in defaults", server->config_path);
+    }
+
+    char *dir = strdup(server->config_path);
+    char *slash = strrchr(dir, '/');
+    if (slash == dir) {
+        dir[1] = '\0'; /* "/sfwc.conf" -> watch "/" */
+        server->config_name = strdup(server->config_path + 1);
+    } else if (slash) {
+        *slash = '\0';
+        server->config_name = strdup(slash + 1);
+    } else {
+        strcpy(dir, ".");
+        server->config_name = strdup(server->config_path);
+    }
+    int fd = inotify_init1(IN_NONBLOCK | IN_CLOEXEC);
+    if (fd >= 0 && inotify_add_watch(fd, dir, IN_CLOSE_WRITE | IN_MOVED_TO) >= 0) {
+        server->inotify_fd = fd;
+        server->inotify_source =
+            wl_event_loop_add_fd(loop, fd, WL_EVENT_READABLE, handle_config_event, server);
+    } else {
+        wlr_log(WLR_INFO, "cannot watch %s for changes; use the reload-config action", dir);
+        if (fd >= 0) {
+            close(fd);
+        }
+    }
+    free(dir);
+}
+
 /* ----------------------------------------------------------------- main */
 
 static int handle_signal(int signo, void *data)
@@ -1054,6 +1187,7 @@ int main(int argc, char *argv[])
     struct wl_event_loop *loop = wl_display_get_event_loop(server.display);
     wl_event_loop_add_signal(loop, SIGINT, handle_signal, server.display);
     wl_event_loop_add_signal(loop, SIGTERM, handle_signal, server.display);
+    init_config(&server, loop);
 
     server.backend = wlr_backend_autocreate(loop, NULL);
     if (!server.backend) {
@@ -1151,6 +1285,12 @@ int main(int argc, char *argv[])
     }
 
     setenv("WAYLAND_DISPLAY", socket, 1);
+    for (size_t i = 0; i < server.config.n_autostart; i++) {
+        char *cmd = config_expand(&server.config, server.config.autostart[i], getenv("XDG_RUNTIME_DIR"));
+        wlr_log(WLR_INFO, "autostart: %s", cmd);
+        spawn(cmd);
+        free(cmd);
+    }
     if (startup_cmd) {
         spawn(startup_cmd);
     }
@@ -1173,6 +1313,16 @@ int main(int argc, char *argv[])
         wl_list_remove(&server.new_virtual_pointer.link);
         wl_list_remove(&server.new_virtual_keyboard.link);
     }
+
+    if (server.inotify_source) {
+        wl_event_source_remove(server.inotify_source);
+    }
+    if (server.inotify_fd >= 0) {
+        close(server.inotify_fd);
+    }
+    free(server.config_path);
+    free(server.config_name);
+    config_finish(&server.config);
 
     wlr_scene_node_destroy(&server.scene->tree.node);
     wlr_xcursor_manager_destroy(server.cursor_mgr);
