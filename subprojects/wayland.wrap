@@ -1,0 +1,9 @@
+# wlroots 0.18 needs wayland >= 1.23; distros like Ubuntu 24.04 ship 1.22.
+[wrap-git]
+url = https://gitlab.freedesktop.org/wayland/wayland.git
+revision = 1.23.1
+depth = 1
+
+[provide]
+dependency_names = wayland-client, wayland-server, wayland-egl-backend
+program_names = wayland-scanner
