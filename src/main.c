@@ -49,6 +49,7 @@
 #include <wlr/types/wlr_subcompositor.h>
 #include <wlr/types/wlr_virtual_keyboard_v1.h>
 #include <wlr/types/wlr_virtual_pointer_v1.h>
+#include <wlr/backend/session.h>
 #include <wlr/types/wlr_data_control_v1.h>
 #include <wlr/types/wlr_foreign_toplevel_management_v1.h>
 #include <wlr/types/wlr_idle_inhibit_v1.h>
@@ -1476,6 +1477,15 @@ static void keyboard_handle_key(struct wl_listener *listener, void *data)
 
     bool handled = false;
     if (event->state == WL_KEYBOARD_KEY_STATE_PRESSED) {
+        /* Ctrl+Alt+F1..F12 switch the virtual terminal (works while locked, too) */
+        xkb_keysym_t sym = xkb_state_key_get_one_sym(keyboard->wlr_keyboard->xkb_state, keycode);
+        if (sym >= XKB_KEY_XF86Switch_VT_1 && sym <= XKB_KEY_XF86Switch_VT_12) {
+            struct wlr_session *session = wlr_backend_get_session(server->backend);
+            if (session) {
+                wlr_session_change_vt(session, sym - XKB_KEY_XF86Switch_VT_1 + 1);
+            }
+            return;
+        }
         uint32_t modifiers = wlr_keyboard_get_modifiers(keyboard->wlr_keyboard);
         const struct keybind *bind = config_find_keybind(
             &server->config, modifiers, base_keysym(keyboard->wlr_keyboard, keycode));
@@ -3009,6 +3019,13 @@ int main(int argc, char *argv[])
     }
 
     setenv("WAYLAND_DISPLAY", socket, 1);
+    /* what portals and toolkits look at; keep values the user or the login manager set */
+    setenv("XDG_CURRENT_DESKTOP", "SFWC", 0);
+    setenv("XDG_SESSION_TYPE", "wayland", 0);
+    if (!getenv("SFWC_NO_DBUS_ENV")) { /* tell D-Bus activated programs (portals) where we are */
+        spawn("dbus-update-activation-environment --systemd WAYLAND_DISPLAY XDG_CURRENT_DESKTOP "
+              "XDG_SESSION_TYPE >/dev/null 2>&1");
+    }
     for (size_t i = 0; i < server.config.n_autostart; i++) {
         char *cmd = expand_command(&server, server.config.autostart[i]);
         wlr_log(WLR_INFO, "autostart: %s", cmd);

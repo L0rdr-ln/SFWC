@@ -1,0 +1,44 @@
+.TH SFWC-THEME-APPLY 1 "" "sfwc" "User Commands"
+.SH NAME
+sfwc\-theme\-apply \- render the templates of an sfwc theme for waybar, fuzzel, foot, mako, ...
+.SH SYNOPSIS
+.B sfwc\-theme\-apply
+.RB [ \-\-theme
+.IR NAME ]
+.RB [ \-\-config\-dir
+.IR DIR ]
+.RB [ \-\-templates
+.IR DIR ]...
+.RB [ \-\-out
+.IR DIR ]
+.RB [ \-\-skip
+.IR NAME ]...
+.RB [ \-\-no\-signal ]
+.RB [ \-\-quiet ]
+.SH DESCRIPTION
+Every
+.I FILE.in
+in a template directory is rendered to
+.I FILE
+in the output directory (default $XDG_RUNTIME_DIR/sfwc). In a template,
+.B @section.key@
+is replaced by the value of that key of the theme (colors.*, geometry.*, shadow.*, font.*,
+theme.name); colors are written #rrggbb, or with a modifier:
+.BR :hex ,
+.BR :hexa ,
+.BR :rgb ,
+.BR :rgba .
+.B @@
+is a literal @. Unknown keys are errors that name the file and line. The compositor runs this
+program on startup and on every reload; outputs are only rewritten when their content changes,
+and waybar (SIGUSR2) and mako (makoctl reload) are told to reload then.
+.PP
+Template directories, first match wins: <theme dir>/<theme>/templates, <config dir>/templates,
+~/.config/sfwc/templates, ~/.local/share/sfwc/templates, /usr/local/share/sfwc/templates,
+/usr/share/sfwc/templates. SFWC_TEMPLATES=dir[:dir] overrides the list.
+.SH EXIT STATUS
+0 on success, 1 if the theme or a template was bad (the other templates are still rendered),
+2 for a usage error.
+.SH SEE ALSO
+.BR sfwc (1),
+.BR sfwc.conf (5)

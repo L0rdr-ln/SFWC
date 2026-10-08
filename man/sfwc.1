@@ -1,0 +1,67 @@
+.TH SFWC 1 "" "sfwc" "User Commands"
+.SH NAME
+sfwc \- simple floating Wayland compositor
+.SH SYNOPSIS
+.B sfwc
+.RB [ \-s
+.IR command ]
+.RB [ \-h ]
+.SH DESCRIPTION
+.B sfwc
+is a small floating (stacking) Wayland compositor built on wlroots. It runs on a TTY
+(DRM/KMS, libseat) or as a window of another Wayland compositor or X11 server. It has
+server-side decorations, themes, animations, workspaces and layer-shell support for bars,
+launchers and wallpapers, and is configured with one INI-style file, see
+.BR sfwc.conf (5).
+.SH OPTIONS
+.TP
+.BI \-s " command"
+Run
+.I command
+(through
+.BR "/bin/sh \-c" )
+once the compositor is up, with WAYLAND_DISPLAY set. The compositor does not exit when the command ends.
+.TP
+.B \-h
+Show usage.
+.SH ENVIRONMENT
+.TP
+.B SFWC_CONFIG
+Path of the config file. Default: $XDG_CONFIG_HOME/sfwc/sfwc.conf, else ~/.config/sfwc/sfwc.conf.
+.TP
+.B SFWC_LOG_LEVEL
+silent, error, info (default) or debug.
+.TP
+.B SFWC_NO_ANIMATIONS
+Set to 1 to switch animations off.
+.TP
+.B SFWC_NO_THEME_APPLY
+Set to 1 to skip rendering the theme templates.
+.TP
+.B SFWC_TEMPLATES
+Colon separated template directories for
+.BR sfwc\-theme\-apply (1).
+.TP
+.B XCURSOR_THEME, XCURSOR_SIZE
+Cursor theme and size.
+.TP
+.B WLR_BACKENDS, WLR_RENDERER
+wlroots overrides (for example WLR_BACKENDS=headless for testing).
+.SH DEFAULT KEYS
+Alt is the default modifier (the
+.B mod
+setting). Alt+Return opens the terminal, Alt+q closes the window, Alt+Tab cycles windows,
+Alt+f maximizes, Alt+F11 toggles fullscreen, Alt+m minimizes (Alt+Shift+m restores),
+Alt+1..4 switch workspace, Alt+Shift+1..4 move the window, Alt+o / Alt+Shift+o move the window /
+the focus to the next output, Alt+Shift+r reloads the config, Alt+Escape quits. Alt+Left drag moves
+and Alt+Right drag resizes a window. Ctrl+Alt+F1..F12 switch the virtual terminal.
+.SH FILES
+.TP
+.I ~/.config/sfwc/sfwc.conf
+Configuration (an example ships as /usr/share/sfwc/sfwc.conf).
+.TP
+.I ~/.config/sfwc/themes/NAME.theme
+User themes.
+.SH SEE ALSO
+.BR sfwc.conf (5),
+.BR sfwc\-theme\-apply (1)

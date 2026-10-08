@@ -53,6 +53,7 @@ template_dep = declare_dependency(
 # Renders the theme's templates for waybar, fuzzel, ... (does not need wlroots).
 theme_apply_exe = executable('sfwc-theme-apply', 'src/sfwc-theme-apply.c',
   dependencies: [template_dep, theme_dep], install: true)
+install_man('man/sfwc-theme-apply.1')
 
 anim_lib = static_library('sfwc_anim', 'src/anim.c')
 anim_dep = declare_dependency(
@@ -106,6 +107,10 @@ if get_option('compositor')
     install: true)
 
   install_data('config/sfwc.conf', install_dir: get_option('datadir') / 'sfwc')
+  install_data('data/sfwc.desktop', install_dir: get_option('datadir') / 'wayland-sessions')
+  install_man('man/sfwc.1', 'man/sfwc.conf.5')
+  install_data('README.md', 'CHANGELOG.md', 'docs/CONFIGURATION.md', 'docs/THEMES.md',
+    'docs/ARCHITECTURE.md', install_dir: get_option('datadir') / 'doc' / 'sfwc')
 endif
 
 subdir('tests')

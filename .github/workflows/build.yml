@@ -38,3 +38,13 @@ jobs:
           export XDG_RUNTIME_DIR="$(mktemp -d)" && chmod 700 "$XDG_RUNTIME_DIR"
           export WLR_BACKENDS=headless WLR_RENDERER=pixman ASAN_OPTIONS=detect_leaks=0:detect_odr_violation=0
           timeout --preserve-status -s INT 3 ./build/sfwc
+      - name: Install into a staging directory and check the files
+        run: |
+          meson install -C build --destdir "$PWD/stage" --skip-subprojects
+          cd stage/usr/local
+          for f in bin/sfwc bin/sfwc-theme-apply share/sfwc/sfwc.conf \
+                   share/wayland-sessions/sfwc.desktop share/man/man1/sfwc.1 \
+                   share/man/man1/sfwc-theme-apply.1 share/man/man5/sfwc.conf.5 \
+                   share/doc/sfwc/CONFIGURATION.md; do
+            test -s "$f" || { echo "missing from the install: $f"; exit 1; }
+          done

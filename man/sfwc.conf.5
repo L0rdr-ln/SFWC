@@ -1,0 +1,82 @@
+.TH SFWC.CONF 5 "" "sfwc" "File Formats"
+.SH NAME
+sfwc.conf \- configuration file of the sfwc compositor
+.SH DESCRIPTION
+The file has
+.B [section]
+headers and
+.B key = value
+lines. Comments are lines starting with # or ; (inline comments are not supported, so #rrggbb
+values are safe). Booleans are true/false, yes/no, on/off, 1/0. Mistakes never stop the
+compositor: each is logged with its line number, the setting keeps its default and the rest
+still applies. The file is re-read when it is saved (or with the reload-config action).
+.SH SECTIONS
+.TP
+.B [general]
+.B theme
+(name, default),
+.B terminal
+(command used by $terminal),
+.B focus
+(click or follow-mouse),
+.B mod
+(Alt, Super, Ctrl or Shift: what $mod means; put it before the binds),
+.B workspaces
+(1 to 9, default 4).
+.TP
+.B [windows]
+.B gap
+(0-200),
+.B decorations
+(draw titlebars and borders),
+.B snap_to_edges, snap_to_windows, snap_distance.
+.TP
+.B [keyboard]
+.B rules, model, layout, variant, options
+(xkb names),
+.B repeat_rate, repeat_delay.
+.TP
+.B [output:NAME]
+.B scale, position
+(x,y),
+.B enabled.
+.TP
+.B [animations]
+.B enabled, open, close
+(none, fade, fade-scale, slide),
+.B move, duration_ms, easing
+(linear, ease-in, ease-out, ease-in-out).
+.TP
+.B [templates]
+.B enabled
+and one boolean per template (waybar = false): render the theme's templates, see
+.BR sfwc\-theme\-apply (1).
+.TP
+.B [keybinds]
+.I modifiers+key
+=
+.I action
+\(em modifiers are $mod, Alt, Super, Ctrl, Shift; the key is an xkb keysym name written unshifted
+(Shift+m, not M). Having this section replaces all built-in binds. Actions:
+.BR spawn:\fIcommand\fR ,
+close, toggle-maximize, toggle-fullscreen, minimize, restore-minimized, cycle-windows,
+move-to-next-output, focus-next-output,
+.BR workspace:\fIN\fR ,
+.BR move-to-workspace:\fIN\fR ,
+reload-config, quit.
+.TP
+.B [mouse]
+.I modifier+button
+= move or resize (button Left, Right or Middle).
+.TP
+.B [autostart]
+.B exec =
+.I command
+(one per line, started once with the compositor).
+.SH EXPANSIONS
+In spawn: and exec commands, $terminal, $theme (theme name), $runtime ($XDG_RUNTIME_DIR) and
+$$ are expanded, as are theme placeholders such as @colors.background:hex@.
+.SH SEE ALSO
+.BR sfwc (1),
+.BR sfwc\-theme\-apply (1),
+the documentation in /usr/share/doc/sfwc (CONFIGURATION.md, THEMES.md).
