@@ -1,0 +1,16 @@
+name: build
+on: [push, pull_request]
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y meson ninja-build pkg-config gcc libwayland-dev \
+            wayland-protocols libxkbcommon-dev libpixman-1-dev libwlroots-0.18-dev || true
+      - name: Build
+        run: |
+          meson setup build
+          meson compile -C build

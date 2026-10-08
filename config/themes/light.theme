@@ -1,0 +1,29 @@
+# SFWC theme: light
+name = Light
+
+[colors]
+background       = #eff1f5
+border_focused   = #1e66f5
+border_unfocused = #ccd0da
+titlebar_focused   = #dce0e8
+titlebar_unfocused = #eff1f5
+title_text       = #4c4f69
+close_button     = #d20f39
+maximize_button  = #40a02b
+minimize_button  = #df8e1d
+
+[geometry]
+border_width  = 1
+titlebar_height = 26
+corner_radius = 4
+button_size   = 12
+
+[shadow]
+enabled = true
+radius  = 12
+offset_y = 3
+color   = #00000033
+
+[font]
+family = sans
+size   = 10

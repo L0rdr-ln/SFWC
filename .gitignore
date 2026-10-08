@@ -1,0 +1,6 @@
+build/
+subprojects/*/
+compile_commands.json
+.cache/
+*.o
+*.swp

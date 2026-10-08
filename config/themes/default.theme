@@ -1,0 +1,29 @@
+# SFWC theme: default
+name = Default
+
+[colors]
+background       = #1e1e2e
+border_focused   = #89b4fa
+border_unfocused = #45475a
+titlebar_focused   = #313244
+titlebar_unfocused = #1e1e2e
+title_text       = #cdd6f4
+close_button     = #f38ba8
+maximize_button  = #a6e3a1
+minimize_button  = #f9e2af
+
+[geometry]
+border_width  = 2
+titlebar_height = 28
+corner_radius = 8
+button_size   = 14
+
+[shadow]
+enabled = true
+radius  = 20
+offset_y = 6
+color   = #00000066
+
+[font]
+family = sans
+size   = 10
