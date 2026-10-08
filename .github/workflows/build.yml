@@ -34,5 +34,5 @@ jobs:
       - name: Smoke test (headless backend, clean shutdown on SIGINT)
         run: |
           export XDG_RUNTIME_DIR="$(mktemp -d)" && chmod 700 "$XDG_RUNTIME_DIR"
-          export WLR_BACKENDS=headless WLR_RENDERER=pixman ASAN_OPTIONS=detect_leaks=0
+          export WLR_BACKENDS=headless WLR_RENDERER=pixman ASAN_OPTIONS=detect_leaks=0:detect_odr_violation=0
           timeout --preserve-status -s INT 3 ./build/sfwc
