@@ -43,6 +43,12 @@ theme_dep = declare_dependency(
   dependencies: inifile_dep)
 
 libm = meson.get_compiler('c').find_library('m')
+
+anim_lib = static_library('sfwc_anim', 'src/anim.c')
+anim_dep = declare_dependency(
+  link_with: anim_lib,
+  include_directories: include_directories('src'))
+
 cairo = dependency('cairo')
 pangocairo = dependency('pangocairo')
 fontconfig = dependency('fontconfig')
@@ -73,7 +79,7 @@ if get_option('compositor')
 
   sfwc_exe = executable('sfwc',
     'src/main.c', xdg_shell_h,
-    dependencies: [wlroots, wayland_server, xkbcommon, libm, libdrm, config_dep, theme_dep, deco_dep],
+    dependencies: [wlroots, wayland_server, xkbcommon, libm, libdrm, config_dep, theme_dep, deco_dep, anim_dep],
     c_args: ['-Wno-unused-parameter'],
     install: true)
 

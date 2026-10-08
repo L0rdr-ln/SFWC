@@ -1324,6 +1324,94 @@ static void run_deco(struct app *app, struct wl_display *d)
 
     win_destroy(d, &a);
 }
+
+/* --------------------------------------------------------- scenario: anim */
+
+static void sleep_ms(int ms)
+{
+    usleep((useconds_t)ms * 1000);
+}
+
+static int blue_of(const struct image *img, int x, int y)
+{
+    return (int)(img_px(img, x, y) & 0xff);
+}
+
+/* Animations are 2 s long, linear (see the script); the client color has blue = 0xc0. */
+static void run_anim(struct app *app, struct wl_display *d)
+{
+    app->ext_w = app->out_w;
+    app->ext_h = app->out_h;
+    setup_virtual_devices(app, d, 0);
+
+    /* opening fades the window in */
+    struct win a;
+    win_open_ex(app, d, &a, "animated", 0xff000000u | C_CLIENT, 0, 1);
+    wait_for(d, &app->kb_enter, 3000, "keyboard focus for the window");
+    sleep_ms(150);
+    struct image img = capture_screen(app, d);
+    int b = blue_of(&img, 148, 98); /* window at (48,48), 200x100 */
+    free(img.px);
+    if (b < 1 || b > 0xb0) {
+        char msg[100];
+        snprintf(msg, sizeof msg, "open animation: blue is 0x%02x shortly after opening, expected a partly faded window", b);
+        fail(msg);
+    }
+    sleep_ms(2300);
+    img = capture_screen(app, d);
+    expect_px(&img, 148, 98, C_CLIENT, "window is fully visible after the open animation");
+    free(img.px);
+
+    /* maximize slides the window from (48,48) to (8,8) instead of jumping */
+    vtap(app, d, MOD_ALT, KEY_F);
+    win_expect(&a, d, 1, 0, 1264, 704, "Alt+f maximizes");
+    img = capture_screen(app, d);
+    expect_px(&img, 20, 20, 0x000000, "maximized window is still sliding into place");
+    free(img.px);
+    sleep_ms(2300);
+    img = capture_screen(app, d);
+    expect_px(&img, 20, 20, C_CLIENT, "maximized window arrived");
+    expect_px(&img, 4, 4, 0x000000, "gap around the maximized window");
+    free(img.px);
+
+    /* closing leaves a fading picture of the window behind */
+    win_destroy(d, &a);
+    sleep_ms(150);
+    img = capture_screen(app, d);
+    b = blue_of(&img, 600, 300);
+    free(img.px);
+    if (b < 1 || b > 0xb4) {
+        char msg[100];
+        snprintf(msg, sizeof msg, "close animation: blue is 0x%02x shortly after closing, expected a fading window", b);
+        fail(msg);
+    }
+    sleep_ms(2300);
+    img = capture_screen(app, d);
+    expect_px(&img, 600, 300, 0x000000, "the closed window is gone after the animation");
+    free(img.px);
+
+    /* with animations switched off (live reload) everything is immediate */
+    const char *cfg_path = getenv("SFWC_CONFIG");
+    if (!cfg_path) {
+        fail("SFWC_CONFIG is not set (run through tests/run_client_test.sh)");
+    }
+    write_config(cfg_path, "[animations]\nenabled = false\n");
+    sleep_ms(500);
+    struct win c;
+    win_open_ex(app, d, &c, "plain", 0xff000000u | C_CLIENT, 0, 1);
+    img = capture_screen(app, d);
+    expect_px(&img, 150, 100, C_CLIENT, "no fade when animations are disabled");
+    free(img.px);
+    vtap(app, d, MOD_ALT, KEY_F);
+    win_expect(&c, d, 1, 0, 1264, 704, "Alt+f maximizes");
+    img = capture_screen(app, d);
+    expect_px(&img, 20, 20, C_CLIENT, "no slide when animations are disabled");
+    free(img.px);
+    win_destroy(d, &c);
+    img = capture_screen(app, d);
+    expect_px(&img, 600, 300, 0x000000, "no fade-out when animations are disabled");
+    free(img.px);
+}
 #endif
 
 /* --------------------------------------------------------------- main */
@@ -1333,8 +1421,9 @@ int main(int argc, char **argv)
     const char *mode = argc > 1 ? argv[1] : "single";
     int multi = !strcmp(mode, "multi");
     int deco = !strcmp(mode, "deco");
-    if (!multi && !deco && strcmp(mode, "single") != 0) {
-        fail("unknown mode (use single, multi or deco)");
+    int anim = !strcmp(mode, "anim");
+    if (!multi && !deco && !anim && strcmp(mode, "single") != 0) {
+        fail("unknown mode (use single, multi, deco or anim)");
     }
 
     struct app app = {0};
@@ -1370,6 +1459,16 @@ int main(int argc, char **argv)
 #endif
     }
 
+    if (anim) {
+#ifdef HAVE_VIRTUAL_INPUT
+        run_anim(&app, display);
+        wl_display_disconnect(display);
+        printf("client_test anim: OK\n");
+        return 0;
+#else
+        fail("the anim scenario needs the wlroots protocol files");
+#endif
+    }
     if (deco) {
 #ifdef HAVE_VIRTUAL_INPUT
         run_deco(&app, display);

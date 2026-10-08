@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
 # Starts sfwc on the headless backend, runs the test client against it and checks the
 # compositor's log and side effects.
-# Usage: run_client_test.sh <sfwc> <client_test> [single|multi|nested|deco]
+# Usage: run_client_test.sh <sfwc> <client_test> [single|multi|nested|deco|anim]
 #   single: one output, input, snapping, live config reload, autostart, terminal
 #   multi:  two outputs (different size/scale/position), follow-mouse, output actions,
 #           reload-config key (config file watching is switched off)
 #   deco:   server-side decorations drawn from a theme: screen captures are checked pixel by
 #           pixel, the frame is clicked and dragged, the theme is reloaded live
+#   anim:   open/close/move animations (2 s, linear) checked with screen captures, then
+#           switched off by a live config reload
 #   nested: the single scenario, but sfwc runs with the wayland backend as a window of a
 #           second (headless) sfwc, like `./sfwc` started inside another Wayland session
 set -u
@@ -16,6 +18,8 @@ TMP="$(mktemp -d)"
 export XDG_RUNTIME_DIR="$TMP"; chmod 700 "$TMP"
 export WLR_BACKENDS=headless WLR_RENDERER=pixman SFWC_ENABLE_VIRTUAL_INPUT=1 SFWC_LOG_LEVEL=debug
 export ASAN_OPTIONS=detect_leaks=0:detect_odr_violation=0
+# animations would make pixel checks timing dependent; only the anim mode wants them
+export SFWC_NO_ANIMATIONS=1
 LOG="$TMP/sfwc.log"
 export SFWC_CONFIG="$TMP/sfwc.conf"
 
@@ -35,6 +39,18 @@ repeat_delay = 250
 [autostart]
 exec = touch \$runtime/autostart-ran
 exec = echo "\$terminal \$theme" > \$runtime/autostart-expanded
+CONF
+    ;;
+anim)
+    unset SFWC_NO_ANIMATIONS
+    cat >"$SFWC_CONFIG" <<'CONF'
+[animations]
+enabled = true
+open = fade
+close = fade
+move = true
+duration_ms = 2000
+easing = linear
 CONF
     ;;
 deco)
@@ -142,7 +158,7 @@ done
 [ -n "$SOCKET" ] || fail "sfwc did not start within 5s"
 
 export WAYLAND_DISPLAY="$SOCKET"
-timeout 40 "$CLIENT" "$CLIENT_MODE" || fail "client test failed"
+timeout 60 "$CLIENT" "$CLIENT_MODE" || fail "client test failed"
 kill -0 "$PID" 2>/dev/null || fail "sfwc died while serving the client"
 
 kill -INT "$PID"
@@ -159,6 +175,9 @@ grep -q "output .* added" "$LOG" || fail "no output was created"
 grep -q "window unmapped" "$LOG" || fail "window was never unmapped"
 
 case "$MODE" in
+anim)
+    grep -q "window mapped.*animated" "$LOG" || fail "window was never mapped"
+    ;;
 deco)
     grep -q "window mapped.*decorated window" "$LOG" || fail "window was never mapped"
     [ "$(grep -c 'theme loaded' "$LOG")" -ge 2 ] || fail "theme was not loaded at startup and again on reload"

@@ -17,6 +17,9 @@ test_deco = executable('test_deco', 'test_deco.c',
   dependencies: [deco_dep, fontconfig])
 test('decoration-rendering', test_deco)
 
+test_anim = executable('test_anim', 'test_anim.c', dependencies: [anim_dep, libm])
+test('animation-math', test_anim)
+
 if get_option('compositor')
   # End-to-end: run sfwc headless and talk to it with a real Wayland client.
   wayland_client = dependency('wayland-client')
@@ -73,9 +76,9 @@ if get_option('compositor')
 
   client_test = executable('client_test', 'client_test.c', client_sources,
     dependencies: client_deps, c_args: client_args)
-  foreach mode : ['single', 'multi', 'nested', 'deco']
+  foreach mode : ['single', 'multi', 'nested', 'deco', 'anim']
     test('compositor-client-' + mode, find_program('bash'),
       args: [files('run_client_test.sh'), sfwc_exe, client_test, mode],
-      timeout: 90)
+      timeout: 120)
   endforeach
 endif

@@ -60,6 +60,7 @@
 #include <xkbcommon/xkbcommon.h>
 
 #include "config.h"
+#include "anim.h"
 #include "deco.h"
 #include "theme.h"
 
@@ -120,6 +121,7 @@ struct server {
 
     struct config config;
     struct theme theme;
+    struct wl_list animations; /* struct animation */
     unsigned theme_gen; /* bumped when the theme changes, so frames re-render */
     struct wlr_xdg_decoration_manager_v1 *xdg_decoration_mgr;
     struct wl_listener new_toplevel_decoration;
@@ -231,11 +233,215 @@ static struct wlr_box toplevel_geometry(struct toplevel *t)
 }
 
 /* Move the window so its geometry's top-left corner is at (x, y). */
-static void toplevel_move_to(struct toplevel *t, int x, int y)
+/* -------------------------------------------------------------- animations */
+
+enum anim_kind { ANIM_OPEN, ANIM_CLOSE, ANIM_MOVE };
+
+struct animation {
+    struct wl_list link;
+    enum anim_kind kind;
+    struct toplevel *toplevel; /* OPEN and MOVE; NULL for CLOSE */
+    struct wlr_scene_tree *tree;
+    uint32_t start_ms, duration_ms;
+    enum anim_easing easing;
+    double from_x, from_y, to_x, to_y; /* position of `tree` */
+    double from_opacity, to_opacity;
+    bool destroy_tree; /* CLOSE: the tree is a snapshot that goes away at the end */
+};
+
+static uint32_t now_msec(void);
+
+/* config `enabled` (reduced motion) and the SFWC_NO_ANIMATIONS=1 environment variable */
+static bool animations_enabled(struct server *server)
 {
+    const char *off = getenv("SFWC_NO_ANIMATIONS");
+    return server->config.anim_enabled && !(off && !strcmp(off, "1"));
+}
+
+static void set_opacity_iter(struct wlr_scene_buffer *buffer, int sx, int sy, void *data)
+{
+    wlr_scene_buffer_set_opacity(buffer, *(float *)data);
+}
+
+static void tree_set_opacity(struct wlr_scene_tree *tree, double opacity)
+{
+    float o = opacity < 0 ? 0 : opacity > 1 ? 1 : (float)opacity;
+    wlr_scene_node_for_each_buffer(&tree->node, set_opacity_iter, &o);
+}
+
+static void animation_apply(struct animation *a, double e)
+{
+    wlr_scene_node_set_position(&a->tree->node, (int)lround(anim_lerp(a->from_x, a->to_x, e)),
+                                (int)lround(anim_lerp(a->from_y, a->to_y, e)));
+    if (a->from_opacity != a->to_opacity) {
+        tree_set_opacity(a->tree, anim_lerp(a->from_opacity, a->to_opacity, e));
+    }
+}
+
+/* Jump to the end state and drop the animation. */
+static void animation_finish(struct animation *a)
+{
+    if (a->destroy_tree) {
+        wlr_scene_node_destroy(&a->tree->node);
+    } else {
+        animation_apply(a, 1);
+        tree_set_opacity(a->tree, 1);
+    }
+    wl_list_remove(&a->link);
+    free(a);
+}
+
+static void animations_schedule_frames(struct server *server)
+{
+    struct output *o;
+    wl_list_for_each(o, &server->outputs, link) {
+        wlr_output_schedule_frame(o->wlr_output);
+    }
+}
+
+static struct animation *animation_start(struct server *server, enum anim_kind kind,
+                                         struct toplevel *t, struct wlr_scene_tree *tree,
+                                         double from_x, double from_y, double to_x, double to_y,
+                                         double from_opacity, double to_opacity)
+{
+    struct animation *a = calloc(1, sizeof(*a));
+    a->kind = kind;
+    a->toplevel = t;
+    a->tree = tree;
+    a->start_ms = now_msec();
+    a->duration_ms = server->config.anim_duration_ms;
+    if (!anim_easing_from_name(server->config.anim_easing, &a->easing)) {
+        a->easing = EASE_OUT;
+    }
+    a->from_x = from_x;
+    a->from_y = from_y;
+    a->to_x = to_x;
+    a->to_y = to_y;
+    a->from_opacity = from_opacity;
+    a->to_opacity = to_opacity;
+    wl_list_insert(&server->animations, &a->link);
+    animation_apply(a, 0); /* no flash of the final state before the first frame */
+    animations_schedule_frames(server);
+    return a;
+}
+
+/* Called for every output frame, before the scene is committed. */
+static void animations_tick(struct server *server)
+{
+    uint32_t now = now_msec();
+    struct animation *a, *tmp;
+    wl_list_for_each_safe(a, tmp, &server->animations, link) {
+        double p = anim_progress(a->start_ms, now, a->duration_ms);
+        if (p >= 1) {
+            animation_finish(a);
+        } else {
+            animation_apply(a, anim_ease(a->easing, p));
+        }
+    }
+}
+
+/* A window that is about to be moved, resized or destroyed by other code. */
+static void animations_cancel(struct toplevel *t, bool finish)
+{
+    struct animation *a, *tmp;
+    wl_list_for_each_safe(a, tmp, &t->server->animations, link) {
+        if (a->toplevel == t) {
+            if (finish) {
+                animation_finish(a);
+            } else {
+                wl_list_remove(&a->link);
+                free(a);
+            }
+        }
+    }
+}
+
+/* Slide distance of the "slide" and "fade-scale" opening/closing animations. */
+static int slide_distance(const char *style)
+{
+    return !strcmp(style, "slide") ? 32 : !strcmp(style, "fade-scale") ? 10 : 0;
+}
+
+static void animate_open(struct toplevel *t)
+{
+    struct server *server = t->server;
+    const char *style = server->config.anim_open;
+    if (!animations_enabled(server) || !strcmp(style, "none") ||
+        server->config.anim_duration_ms == 0) {
+        return;
+    }
+    double x = t->scene_tree->node.x, y = t->scene_tree->node.y;
+    animation_start(server, ANIM_OPEN, t, t->scene_tree, x, y + slide_distance(style), x, y, 0, 1);
+}
+
+struct snapshot_ctx {
+    struct wlr_scene_tree *snap;
+    int count;
+};
+
+static void snapshot_iter(struct wlr_scene_buffer *sb, int sx, int sy, void *data)
+{
+    struct snapshot_ctx *ctx = data;
+    if (!sb->buffer) {
+        return;
+    }
+    struct wlr_scene_buffer *copy = wlr_scene_buffer_create(ctx->snap, sb->buffer);
+    wlr_scene_node_set_position(&copy->node, sx, sy);
+    wlr_scene_buffer_set_dest_size(copy, sb->dst_width, sb->dst_height);
+    wlr_scene_buffer_set_source_box(copy, &sb->src_box);
+    wlr_scene_buffer_set_transform(copy, sb->transform);
+    ctx->count++;
+}
+
+/* The window is going away: keep a picture of it on screen and fade that out. */
+static void animate_close(struct toplevel *t)
+{
+    struct server *server = t->server;
+    const char *style = server->config.anim_close;
+    if (!animations_enabled(server) || !strcmp(style, "none") ||
+        server->config.anim_duration_ms == 0) {
+        return;
+    }
+    struct wlr_scene_tree *snap = wlr_scene_tree_create(&server->scene->tree);
+    int lx, ly;
+    wlr_scene_node_coords(&t->scene_tree->node, &lx, &ly);
+    wlr_scene_node_set_position(&snap->node, lx, ly);
+    struct snapshot_ctx ctx = {snap, 0};
+    /* the xdg tree was just disabled by the unmap; iterate it as if it still showed */
+    bool was_enabled = t->scene_tree->node.enabled;
+    wlr_scene_node_set_enabled(&t->scene_tree->node, true);
+    wlr_scene_node_for_each_buffer(&t->scene_tree->node, snapshot_iter, &ctx);
+    wlr_scene_node_set_enabled(&t->scene_tree->node, was_enabled);
+    if (ctx.count == 0) {
+        wlr_scene_node_destroy(&snap->node);
+        return;
+    }
+    struct animation *a = animation_start(server, ANIM_CLOSE, NULL, snap, lx, ly, lx,
+                                          ly + slide_distance(style), 1, 0);
+    a->destroy_tree = true;
+}
+
+/* Move the window (content top-left to x, y), with a tween when `animate` is set. */
+static void toplevel_move_to_ex(struct toplevel *t, int x, int y, bool animate)
+{
+    struct server *server = t->server;
+    animations_cancel(t, true);
     struct wlr_box geo = {0};
     wlr_xdg_surface_get_geometry(t->xdg_toplevel->base, &geo);
-    wlr_scene_node_set_position(&t->scene_tree->node, x - geo.x, y - geo.y);
+    int nx = x - geo.x, ny = y - geo.y;
+    if (animate && t->mapped && server->config.anim_move && animations_enabled(server) &&
+        server->config.anim_duration_ms > 0 &&
+        (abs(nx - t->scene_tree->node.x) > 2 || abs(ny - t->scene_tree->node.y) > 2)) {
+        animation_start(server, ANIM_MOVE, t, t->scene_tree, t->scene_tree->node.x,
+                        t->scene_tree->node.y, nx, ny, 1, 1);
+    } else {
+        wlr_scene_node_set_position(&t->scene_tree->node, nx, ny);
+    }
+}
+
+static void toplevel_move_to(struct toplevel *t, int x, int y)
+{
+    toplevel_move_to_ex(t, x, y, false);
 }
 
 /* Box of the output containing (x, y), or the center output; zero-sized if none. */
@@ -460,11 +666,11 @@ static void toplevel_apply_state(struct toplevel *t, bool max, bool fs)
             ref.y + ref.height / 2.0);
     if ((fs || max) && box.width > 0) {
         int inset = fs ? 0 : t->server->config.gap;
-        toplevel_move_to(t, box.x + inset + ins.left, box.y + inset + ins.top);
+        toplevel_move_to_ex(t, box.x + inset + ins.left, box.y + inset + ins.top, true);
         wlr_xdg_toplevel_set_size(t->xdg_toplevel, box.width - 2 * inset - ins.left - ins.right,
                                   box.height - 2 * inset - ins.top - ins.bottom);
     } else if (!fs && !max) {
-        toplevel_move_to(t, t->saved.x, t->saved.y);
+        toplevel_move_to_ex(t, t->saved.x, t->saved.y, true);
         wlr_xdg_toplevel_set_size(t->xdg_toplevel, t->saved.width, t->saved.height);
     }
     if (t->xdg_toplevel->base->initialized) {
@@ -689,7 +895,7 @@ static void move_to_next_output(struct toplevel *t)
         t->saved.y = y + ins.top;
         toplevel_apply_state(t, t->maximized, t->fullscreen);
     } else {
-        toplevel_move_to(t, x + ins.left, y + ins.top);
+        toplevel_move_to_ex(t, x + ins.left, y + ins.top, true);
     }
 }
 
@@ -1046,6 +1252,7 @@ static void begin_interactive(struct toplevel *toplevel, enum cursor_mode mode, 
                                                wlr_surface_get_root_surface(focused))) {
         return; /* a client may only start a grab while the pointer is over its window */
     }
+    animations_cancel(toplevel, true); /* the window follows the pointer from where it is */
     server->grabbed_toplevel = toplevel;
     server->cursor_mode = mode;
 
@@ -1310,6 +1517,7 @@ static void cursor_frame(struct wl_listener *listener, void *data)
 static void output_frame(struct wl_listener *listener, void *data)
 {
     struct output *output = wl_container_of(listener, output, frame);
+    animations_tick(output->server);
     struct wlr_scene_output *scene_output =
         wlr_scene_get_scene_output(output->server->scene, output->wlr_output);
     wlr_scene_output_commit(scene_output, NULL);
@@ -1477,6 +1685,7 @@ static void toplevel_map(struct wl_listener *listener, void *data)
     wl_list_insert(&toplevel->server->toplevels, &toplevel->link);
     focus_toplevel(toplevel);
     frame_refresh(toplevel);
+    animate_open(toplevel);
 }
 
 static void toplevel_unmap(struct wl_listener *listener, void *data)
@@ -1484,6 +1693,8 @@ static void toplevel_unmap(struct wl_listener *listener, void *data)
     struct toplevel *toplevel = wl_container_of(listener, toplevel, unmap);
     wlr_log(WLR_INFO, "window unmapped");
     struct server *server = toplevel->server;
+    animations_cancel(toplevel, false);
+    animate_close(toplevel);
     if (toplevel == server->grabbed_toplevel) {
         reset_cursor_mode(server);
     }
@@ -1533,6 +1744,7 @@ static void toplevel_destroy(struct wl_listener *listener, void *data)
         wl_list_remove(&toplevel->deco_request_mode.link);
         wl_list_remove(&toplevel->deco_destroy.link);
     }
+    animations_cancel(toplevel, false);
     free(toplevel->frame_title);
     free(toplevel);
 }
@@ -1947,6 +2159,7 @@ int main(int argc, char *argv[])
     server.scene_layout = wlr_scene_attach_output_layout(server.scene, server.output_layout);
 
     wl_list_init(&server.toplevels);
+    wl_list_init(&server.animations);
     server.xdg_shell = wlr_xdg_shell_create(server.display, 3);
     server.new_xdg_toplevel.notify = server_new_xdg_toplevel;
     wl_signal_add(&server.xdg_shell->events.new_toplevel, &server.new_xdg_toplevel);
@@ -2044,6 +2257,11 @@ int main(int argc, char *argv[])
         wl_list_remove(&server.new_virtual_keyboard.link);
     }
 
+    struct animation *anim, *anim_tmp;
+    wl_list_for_each_safe(anim, anim_tmp, &server.animations, link) {
+        wl_list_remove(&anim->link);
+        free(anim);
+    }
     if (server.inotify_source) {
         wl_event_source_remove(server.inotify_source);
     }
