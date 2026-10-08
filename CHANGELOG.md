@@ -5,6 +5,10 @@ Versions follow the roadmap milestones while the project is pre-1.0:
 
 ## Unreleased – M3 "Configuration" and M1–M3 completion
 
+### Changed
+- `src/main.c` (3000 lines) is split into modules by topic (window, output, input, cursor,
+  layers, lock, ...) around a shared `src/server.h`; no behavior change.
+
 ### Added
 - Session integration (M7): `sfwc.desktop` for display managers, man pages, Ctrl+Alt+F1..F12
   VT switching, `XDG_CURRENT_DESKTOP=SFWC`, D-Bus activation environment, install check in CI.

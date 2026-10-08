@@ -100,8 +100,13 @@ if get_option('compositor')
     output: 'ext-session-lock-v1-protocol.h',
     command: [wayland_scanner, 'server-header', '@INPUT@', '@OUTPUT@'])
 
+  sfwc_sources = files(
+    'src/main.c', 'src/settings.c', 'src/animate.c', 'src/window.c', 'src/workspace.c',
+    'src/decoration.c', 'src/output.c', 'src/input.c', 'src/actions.c', 'src/cursor.c',
+    'src/layers.c', 'src/lock.c', 'src/foreign.c', 'src/idle.c')
+
   sfwc_exe = executable('sfwc',
-    'src/main.c', xdg_shell_h, layer_shell_h, session_lock_h,
+    sfwc_sources, xdg_shell_h, layer_shell_h, session_lock_h,
     dependencies: [wlroots, wayland_server, xkbcommon, libm, libdrm, config_dep, theme_dep, template_dep, deco_dep, anim_dep],
     c_args: ['-Wno-unused-parameter'],
     install: true)

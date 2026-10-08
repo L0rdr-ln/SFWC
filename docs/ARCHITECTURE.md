@@ -2,22 +2,40 @@
 
 SFWC is a single-process C program on top of wlroots 0.18.
 
+The compositor is split by topic. All modules share `src/server.h` (the `struct server`,
+`struct toplevel`, `struct output`, ... and the functions the modules call from each other);
+everything else in a module is `static`.
+
 ```
-main.c        startup: display, backend, renderer, allocator, socket
-(planned)
-server.c      global state, event loop wiring
-output.c      monitors: layout, frame scheduling
-view.c        xdg-toplevel windows: stacking order, move/resize, focus
-decor.c       server-side decorations drawn from the active theme
-input.c       seat, keyboard, pointer, keybinds
-config.c      parser for sfwc.conf, reload handling
-theme.c       parser for *.theme files; built-in fallback theme, files come from sfwc-themes
-anim.c        animation engine (tweens driven by the frame clock)
-spawn.c       fork/exec with setsid, SIGCHLD reaping, autostart
-(helper)
-sfwc-theme-apply   renders themes/templates/*.in -> $XDG_RUNTIME_DIR/sfwc/
-                   (separate program, part of the optional theme package)
+src/main.c         startup: display, backend, renderer, protocols, socket, autostart, main loop
+src/settings.c     config + theme loading, live reload (inotify), theme templates, spawn
+src/window.c       xdg-shell windows: placement, focus, maximize/fullscreen/minimize, popups
+src/workspace.c    workspaces: what is shown, switching, sending windows
+src/decoration.c   server-side decorations: titlebar, borders, shadow as scene buffers
+src/animate.c      open/close/move animations driven by the output frame callbacks
+src/output.c       monitors: layout, work area, "next output" helpers, frame scheduling
+src/layers.c       wlr-layer-shell: panels, wallpapers, launchers, exclusive zones
+src/input.c        seat, keyboards (xkb, repeat), virtual input (tests), selection requests
+src/actions.c      what a keybind does (dispatch_action)
+src/cursor.c       pointer: hit testing, focus, drag to move/resize, buttons, snapping
+src/lock.c         ext-session-lock
+src/foreign.c      wlr-foreign-toplevel-management (taskbars)
+src/idle.c         idle inhibit
+
+Parsers and helpers without a wlroots dependency (unit-tested in tests/):
+src/inifile.c      line-numbered INI reader on top of the vendored inih
+src/config.c       sfwc.conf: sections, keybinds, defaults
+src/theme.c        *.theme files; the built-in default theme
+src/deco.c         frame geometry, hit testing and cairo/pango drawing of the decorations
+src/anim.c         easing and time based progress
+src/template.c     @section.key@ rendering of theme values
+src/sfwc-theme-apply.c   renders themes/templates/*.in -> $XDG_RUNTIME_DIR/sfwc/
+                   (separate program; part of the compositor package, templates come
+                   with the optional theme package)
 ```
+
+Adding a protocol: create the global in `main()`, put its handlers in a module of its own (or
+the one it belongs to) and give `server.h` the few functions other modules need.
 
 Design notes:
 
@@ -31,11 +49,12 @@ Design notes:
 
 ## Protocols the compositor must implement
 
-Companion tools only work if the matching protocols exist:
-`xdg-shell`, `xdg-decoration`, `wlr-layer-shell` (bar, wallpaper, launcher),
-`ext-session-lock` (lock screen), `ext-idle-notify` (idle daemon),
-`wlr-foreign-toplevel-management` (taskbar), a workspace protocol
-(`ext-workspace`), plus `wlr-screencopy`/`ext-image-copy-capture` for screenshots.
+Companion tools only work if the matching protocols exist. Implemented: `xdg-shell`,
+`xdg-decoration`, `xdg-output`, `wlr-layer-shell` (bar, wallpaper, launcher), `ext-session-lock`
+(lock screen), `ext-idle-notify` and idle inhibit (idle daemon),
+`wlr-foreign-toplevel-management` (taskbar), `wlr-screencopy` (screenshots), primary selection
+and `wlr-data-control` (clipboard managers). Not yet: a workspace protocol (`ext-workspace`),
+`ext-image-copy-capture`, Xwayland.
 
 ## Libraries beyond wlroots
 
