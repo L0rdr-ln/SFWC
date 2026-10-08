@@ -1,0 +1,50 @@
+name: Bug report
+description: Something does not work as documented
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        SFWC is alpha software and has only been tested headless so far, so reports from real
+        hardware (TTY, several GPUs, multiple monitors) are especially welcome.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: "1. start sfwc ...\n2. open ...\n3. press ..."
+    validations:
+      required: true
+  - type: dropdown
+    id: how
+    attributes:
+      label: How do you run sfwc?
+      options:
+        - On a TTY / from a display manager
+        - Nested in another Wayland compositor
+        - Nested in an X11 session
+        - Headless (tests)
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit (`git rev-parse --short HEAD`, or the release tag)
+    validations:
+      required: true
+  - type: input
+    id: system
+    attributes:
+      label: Distribution, GPU and driver, wlroots version
+      placeholder: "Arch, AMD RX 6600 / amdgpu, wlroots 0.18.2"
+  - type: textarea
+    id: log
+    attributes:
+      label: Log
+      description: Start with `SFWC_LOG_LEVEL=debug sfwc 2> sfwc.log` and paste the relevant part. Please also paste your config if it could matter (remove anything private).
+      render: text

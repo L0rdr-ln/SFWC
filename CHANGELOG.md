@@ -10,6 +10,12 @@ Versions follow the roadmap milestones while the project is pre-1.0:
   layers, lock, ...) around a shared `src/server.h`; no behavior change.
 
 ### Added
+- Eight more themes (nord, gruvbox-dark, dracula, tokyo-night, rose-pine, solarized-dark,
+  solarized-light, high-contrast), mock-up previews in `docs/themes/` generated from the theme
+  files, and a README gallery.
+- Tests: every shipped theme is checked for validity and readable contrast, the previews are
+  checked for being current, and a fuzz test feeds garbage to the config/theme/template parsers.
+- GitHub: issue forms, pull request template, `SECURITY.md`, a rewritten README.
 - Session integration (M7): `sfwc.desktop` for display managers, man pages, Ctrl+Alt+F1..F12
   VT switching, `XDG_CURRENT_DESKTOP=SFWC`, D-Bus activation environment, install check in CI.
 - Theme templating (M6): `sfwc-theme-apply` renders `@section.key@` templates (waybar, fuzzel,

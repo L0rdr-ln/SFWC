@@ -88,7 +88,8 @@ are roughly in build order; check them off as they land.
 - [x] Compositor runs the helper on start and reload, signals running tools
 - [x] Expand theme values (`@section.key@`) in `[autostart]` and `spawn:` commands
 - [x] More tools: swaylock, mako, foot
-- [ ] More themes
+- [x] More themes: nord, gruvbox-dark, dracula, tokyo-night, rose-pine, solarized-dark/light,
+      high-contrast (checked for readable contrast by a test)
 - [ ] Move `themes/` to its own repo once format and templates are stable
 
 ## M7 – Release

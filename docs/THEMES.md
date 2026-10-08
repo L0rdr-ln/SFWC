@@ -10,6 +10,15 @@ Sections: `[colors]`, `[geometry]`, `[shadow]`, `[font]`. Colors are
 `#rrggbb` or `#rrggbbaa`. See [default.theme](../themes/default.theme)
 and [light.theme](../themes/light.theme). Share a theme by sharing the file.
 
+## Included themes
+
+`default` (Catppuccin Mocha colors, also built into the compositor), `light`, `nord`,
+`gruvbox-dark`, `dracula`, `tokyo-night`, `rose-pine`, `solarized-dark`, `solarized-light` and
+`high-contrast` (thick yellow border, large text, no shadow). Previews are in the
+[README](../README.md#themes). The colors come from the well-known palettes of those names;
+`solarized-light` uses a darker text color than the original palette so that the title text
+reaches a 4.5:1 contrast ratio. A test checks every shipped theme for that.
+
 ## Format reference
 
 A theme is an ini-style file (`format = 1`), loaded by name. Search order for `theme = NAME`:

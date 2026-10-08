@@ -1,0 +1,22 @@
+name: Feature request
+description: Suggest something new
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What do you want to do that you cannot do now?
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: How could it work?
+      description: A config example or a keybinding sketch helps. SFWC aims to stay small, so say why it belongs in the compositor rather than in a companion tool.
+  - type: checkboxes
+    id: checked
+    attributes:
+      label: Checked
+      options:
+        - label: I looked at the [roadmap](https://github.com/L0rdr-ln/Simple-Floating-Wayland-Compositor/blob/main/docs/ROADMAP.md) and the existing issues
+          required: true

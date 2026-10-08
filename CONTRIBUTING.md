@@ -17,14 +17,24 @@ struct passed around will do. Prefer wlroots' scene graph API for rendering.
 
 ## Tests
 
-`meson test -C build` runs, besides the parser/config unit tests, three end-to-end runs of
-`tests/run_client_test.sh` with the client in `tests/client_test.c`:
+`meson test -C build` runs (sanitizer build in CI):
 
 | Test | What it covers |
 |---|---|
-| `compositor-client-single` | one headless output: windows, popups, maximize/fullscreen/minimize, virtual keyboard + pointer, snapping to edges and to another window, Alt+Return terminal, keyboard repeat, `xdg-output`, live config reload (errors with line numbers, autostart) |
-| `compositor-client-multi` | two outputs with different size, scale and position: placement and maximize per output, `focus = follow-mouse`, move/focus to the next output, `reload-config` key, bad keyboard layout fallback |
-| `compositor-client-nested` | the single scenario with `sfwc` using the wayland backend inside a headless `sfwc`, like starting it in another Wayland session |
+| `config-parser`, `theme-parser`, `config-and-theme-parsing` | every option, limits, error messages with line numbers, the shipped config and default theme |
+| `template-rendering`, `theme-apply-helper`, `shipped-templates` | `@section.key@` rendering (strict, lenient, shell-quoted), the `sfwc-theme-apply` helper, every shipped template with every shipped theme |
+| `shipped-themes` | every `themes/*.theme`: loads without messages, readable contrast (title text 4.5:1, buttons 1.8:1), unique name, installed, has a preview and a README entry |
+| `theme-previews-current` | `docs/themes/*.svg` match the theme files (`tools/theme-preview.py`) |
+| `parser-fuzz` | random and mutated input through the config, theme and template code under ASan/UBSan |
+| `decoration-rendering`, `animation-math` | frame geometry/hit testing/drawing, easing and progress |
+| `compositor-client-*` | end-to-end: `tests/run_client_test.sh` starts sfwc headless and `tests/client_test.c` talks to it as a real Wayland client |
+
+The end-to-end modes: `single` (windows, popups, maximize/fullscreen/minimize, virtual keyboard and
+pointer, snapping, terminal, key repeat, `xdg-output`, live config reload, autostart, theme
+templates), `multi` (two outputs with different size/scale/position, follow-mouse, output actions),
+`nested` (sfwc as a window of another sfwc), `deco` (decorations checked pixel by pixel through
+screencopy, dragging, resizing, live theme reload), `anim` (open/close/move animations),
+`layers` (wlr-layer-shell), `workspaces`, `lock` (ext-session-lock).
 
 Input is injected with the wlroots virtual keyboard/pointer protocols. Those let any client
 inject input, so sfwc only exposes them when started with `SFWC_ENABLE_VIRTUAL_INPUT=1`
@@ -34,6 +44,13 @@ compositor's log, which runs at `SFWC_LOG_LEVEL=debug`.
 
 A test that has never failed proves little: when adding a check, break the expectation once
 and confirm it goes red.
+
+## Adding a theme
+
+1. Copy a similar file in `themes/` (lower-case name with dashes, `format = 1`).
+2. Add it to `themes/meson.build`, run `tools/theme-preview.py`, and add the preview to the
+   gallery in `README.md`.
+3. `meson test -C build shipped-themes` tells you if the colors are too close to read.
 
 ## Releases
 
