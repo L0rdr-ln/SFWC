@@ -112,7 +112,7 @@ void frame_refresh(struct toplevel *t)
     }
     const struct theme *theme = &server->theme;
     struct wlr_box geo;
-    wlr_xdg_surface_get_geometry(t->xdg_toplevel->base, &geo);
+    geo = t->xdg_toplevel->base->geometry; /* wlroots 0.20: kept up to date on commit */
     if (geo.width <= 0 || geo.height <= 0) {
         return;
     }

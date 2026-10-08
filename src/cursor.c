@@ -90,7 +90,7 @@ void begin_interactive(struct toplevel *toplevel, enum cursor_mode mode, uint32_
         server->grab_y = server->cursor->y - toplevel->scene_tree->node.y;
     } else {
         struct wlr_box geo;
-        wlr_xdg_surface_get_geometry(toplevel->xdg_toplevel->base, &geo);
+        geo = toplevel->xdg_toplevel->base->geometry; /* wlroots 0.20: kept up to date on commit */
         double border_x = (toplevel->scene_tree->node.x + geo.x) +
                           ((edges & WLR_EDGE_RIGHT) ? geo.width : 0);
         double border_y = (toplevel->scene_tree->node.y + geo.y) +
@@ -123,7 +123,7 @@ static void process_cursor_move(struct server *server)
     /* Snap the window's geometry to the output edges and to other windows (keeping
      * `gap` between them); the nearest candidate on each axis wins. */
     struct wlr_box geo = {0};
-    wlr_xdg_surface_get_geometry(toplevel->xdg_toplevel->base, &geo);
+    geo = toplevel->xdg_toplevel->base->geometry; /* wlroots 0.20: kept up to date on commit */
     const struct config *cfg = &server->config;
     struct deco_insets ins = toplevel_insets(toplevel);
     /* work on the outer rectangle (content plus frame) */
@@ -196,7 +196,7 @@ static void process_cursor_resize(struct server *server)
     }
 
     struct wlr_box geo;
-    wlr_xdg_surface_get_geometry(toplevel->xdg_toplevel->base, &geo);
+    geo = toplevel->xdg_toplevel->base->geometry; /* wlroots 0.20: kept up to date on commit */
     wlr_scene_node_set_position(&toplevel->scene_tree->node, new_left - geo.x, new_top - geo.y);
     wlr_xdg_toplevel_set_size(toplevel->xdg_toplevel, new_right - new_left, new_bottom - new_top);
 }

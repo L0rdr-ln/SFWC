@@ -7,7 +7,7 @@
 struct wlr_box toplevel_geometry(struct toplevel *t)
 {
     struct wlr_box geo = {0};
-    wlr_xdg_surface_get_geometry(t->xdg_toplevel->base, &geo);
+    geo = t->xdg_toplevel->base->geometry; /* wlroots 0.20: kept up to date on commit */
     geo.x += t->scene_tree->node.x;
     geo.y += t->scene_tree->node.y;
     return geo;
@@ -19,7 +19,7 @@ void toplevel_move_to_ex(struct toplevel *t, int x, int y, bool animate)
     struct server *server = t->server;
     animations_cancel(t, true);
     struct wlr_box geo = {0};
-    wlr_xdg_surface_get_geometry(t->xdg_toplevel->base, &geo);
+    geo = t->xdg_toplevel->base->geometry; /* wlroots 0.20: kept up to date on commit */
     int nx = x - geo.x, ny = y - geo.y;
     if (animate && t->mapped && server->config.anim_move && animations_enabled(server) &&
         server->config.anim_duration_ms > 0 &&
