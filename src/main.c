@@ -93,6 +93,7 @@ enum cursor_mode {
 struct server {
     struct wl_display *display;
     struct wlr_backend *backend;
+    struct wlr_session *session; /* NULL unless running on a TTY (VT switching) */
     struct wlr_renderer *renderer;
     struct wlr_allocator *allocator;
     struct wlr_scene *scene;
@@ -1480,9 +1481,8 @@ static void keyboard_handle_key(struct wl_listener *listener, void *data)
         /* Ctrl+Alt+F1..F12 switch the virtual terminal (works while locked, too) */
         xkb_keysym_t sym = xkb_state_key_get_one_sym(keyboard->wlr_keyboard->xkb_state, keycode);
         if (sym >= XKB_KEY_XF86Switch_VT_1 && sym <= XKB_KEY_XF86Switch_VT_12) {
-            struct wlr_session *session = wlr_backend_get_session(server->backend);
-            if (session) {
-                wlr_session_change_vt(session, sym - XKB_KEY_XF86Switch_VT_1 + 1);
+            if (server->session) {
+                wlr_session_change_vt(server->session, sym - XKB_KEY_XF86Switch_VT_1 + 1);
             }
             return;
         }
@@ -2876,7 +2876,7 @@ int main(int argc, char *argv[])
     wl_event_loop_add_signal(loop, SIGTERM, handle_signal, server.display);
     init_config(&server, loop);
 
-    server.backend = wlr_backend_autocreate(loop, NULL);
+    server.backend = wlr_backend_autocreate(loop, &server.session);
     if (!server.backend) {
         wlr_log(WLR_ERROR, "failed to create backend");
         return EXIT_FAILURE;
