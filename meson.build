@@ -126,7 +126,7 @@ if get_option('compositor')
   # installed sfwc-plugin.pc does the same for plugins built later.
   sfwc_plugin_dep = declare_dependency(
     include_directories: include_directories('include'),
-    dependencies: wlroots)
+    dependencies: [wlroots, wayland_server])
   meson.override_dependency('sfwc-plugin', sfwc_plugin_dep)
 
   subdir('plugins')
