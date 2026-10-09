@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Starts sfwc on the headless backend, runs the test client against it and checks the
 # compositor's log and side effects.
-# Usage: run_client_test.sh <sfwc> <client_test> [single|multi|nested|deco|anim|layers|workspaces|lock]
+# Usage: run_client_test.sh <sfwc> <client_test> [single|multi|nested|deco|anim|layers|workspaces|lock|hypr]
 #   single: one output, input, snapping, live config reload, autostart, terminal
 #   multi:  two outputs (different size/scale/position), follow-mouse, output actions,
 #           reload-config key (config file watching is switched off)
@@ -50,6 +50,47 @@ CONF
     ;;
 layers|workspaces|lock)
     : >"$SFWC_CONFIG"
+    ;;
+hypr)
+    # Hyprland style rules with slow linear curves (2 s) so that the checks are not timing sensitive.
+    unset SFWC_NO_ANIMATIONS
+    mkdir -p "$TMP/themes"
+    cat >"$TMP/themes/test.theme" <<'THEME'
+format = 1
+name = Test
+[colors]
+background = #101010
+border_focused = #ff0000
+border_unfocused = #0000ff
+titlebar_focused = #00ff00
+titlebar_unfocused = #ffff00
+title_text = #ffffff
+close_button = #ff00ff
+maximize_button = #00ffff
+minimize_button = #ff8000
+[geometry]
+border_width = 4
+titlebar_height = 24
+corner_radius = 10
+button_size = 12
+button_spacing = 6
+[shadow]
+enabled = false
+[font]
+family = sans
+size = 10
+THEME
+    cat >"$SFWC_CONFIG" <<'CONF'
+[general]
+theme = test
+[animations]
+bezier = lin, 0, 0, 1, 1
+animation = windowsIn, 1, 20, lin, popin 50%
+animation = windowsOut, 1, 20, lin, popin 50%
+animation = fade, 0
+animation = workspaces, 1, 20, lin, slide
+animation = border, 0
+CONF
     ;;
 anim)
     unset SFWC_NO_ANIMATIONS
@@ -195,6 +236,9 @@ workspaces)
 layers)
     grep -q "layer surface mapped: namespace=bar" "$LOG" || fail "the panel was never mapped"
     grep -q "layer surface unmapped: namespace=launcher" "$LOG" || fail "the launcher was never unmapped"
+    ;;
+hypr)
+    grep -q "workspace 2" "$LOG" || fail "the compositor never switched workspace"
     ;;
 anim)
     grep -q "window mapped.*animated" "$LOG" || fail "window was never mapped"

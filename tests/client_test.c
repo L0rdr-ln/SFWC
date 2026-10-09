@@ -1437,6 +1437,140 @@ static void run_anim(struct app *app, struct wl_display *d)
 #define C_BAR 0xaa5500
 #define C_OVERLAY 0x00aa55
 
+/* ------------------------------------------- scenario: Hyprland style animations */
+
+static int red_of(const struct image *img, int x, int y)
+{
+    return (int)((img_px(img, x, y) >> 16) & 0xff);
+}
+
+static void run_hypr(struct app *app, struct wl_display *d)
+{
+    app->ext_w = app->out_w;
+    app->ext_h = app->out_h;
+    setup_virtual_devices(app, d, 0);
+    const char *cfg_path = getenv("SFWC_CONFIG");
+    if (!cfg_path) {
+        fail("SFWC_CONFIG is not set (run through tests/run_client_test.sh)");
+    }
+
+    /* popin: the window grows from 50% of its size around its center (no fade, so the colors
+     * stay exact). 2 s linear: half a second in it is about 62% of the size. */
+    struct win a;
+    win_open_ex(app, d, &a, "popin", 0xff000000u | C_CLIENT, 0, 1); /* 200x100 at (48,48) */
+    wait_for(d, &app->kb_enter, 3000, "keyboard focus for the window");
+    sleep_ms(500);
+    struct image img = capture_screen(app, d);
+    expect_px(&img, 148, 98, C_CLIENT, "popin: the center of the window is there");
+    expect_px(&img, 105, 98, C_CLIENT, "popin: at least half of the window is there");
+    expect_px(&img, 190, 98, C_CLIENT, "popin: at least half of the window is there (right)");
+    expect_px(&img, 52, 98, 0x000000, "popin: the window is still smaller than its full size (left)");
+    expect_px(&img, 244, 98, 0x000000, "popin: the window is still smaller than its full size (right)");
+    expect_px(&img, 148, 50, 0x000000, "popin: the window is still smaller than its full size (top)");
+    free(img.px);
+    sleep_ms(2300);
+    img = capture_screen(app, d);
+    expect_px(&img, 52, 98, C_CLIENT, "popin: the window has its full size afterwards (left)");
+    expect_px(&img, 244, 98, C_CLIENT, "popin: the window has its full size afterwards (right)");
+    expect_px(&img, 148, 52, C_CLIENT, "popin: the window has its full size afterwards (top)");
+    free(img.px);
+
+    /* closing shrinks a picture of the window */
+    win_destroy(d, &a);
+    sleep_ms(500);
+    img = capture_screen(app, d);
+    expect_px(&img, 148, 98, C_CLIENT, "popin out: the picture of the window is still there");
+    expect_px(&img, 52, 98, 0x000000, "popin out: it is shrinking");
+    free(img.px);
+    sleep_ms(2300);
+    img = capture_screen(app, d);
+    expect_px(&img, 148, 98, 0x000000, "popin out: gone afterwards");
+    free(img.px);
+
+    /* workspaces: the old window slides out to the left while the new one slides in from the right */
+    win_open_ex(app, d, &a, "slider", 0xff000000u | C_CLIENT, 0, 1);
+    wait_for(d, &app->kb_enter, 3000, "keyboard focus for the window");
+    sleep_ms(2300);
+    vtap(app, d, MOD_ALT, KEY_F);
+    win_expect(&a, d, 1, 0, 1264, 704, "Alt+f maximizes");
+    sleep_ms(600); /* the move animation of the maximize (legacy keys: 180 ms) */
+    vtap(app, d, MOD_ALT, KEY_2);
+    sleep_ms(500);
+    img = capture_screen(app, d);
+    expect_px(&img, 300, 300, C_CLIENT, "workspace slide: the old workspace is still on its way out");
+    expect_px(&img, 1200, 300, 0x000000, "workspace slide: it has moved to the left");
+    free(img.px);
+    sleep_ms(2300);
+    img = capture_screen(app, d);
+    expect_px(&img, 300, 300, 0x000000, "workspace slide: the old workspace is gone");
+    free(img.px);
+    vtap(app, d, MOD_ALT, KEY_1);
+    sleep_ms(500);
+    img = capture_screen(app, d);
+    expect_px(&img, 1250, 300, C_CLIENT, "workspace slide: the window comes in from the right");
+    expect_px(&img, 300, 300, 0x000000, "workspace slide: it has not arrived yet");
+    free(img.px);
+    sleep_ms(2300);
+    img = capture_screen(app, d);
+    expect_px(&img, 300, 300, C_CLIENT, "workspace slide: the window arrived");
+    free(img.px);
+    win_destroy(d, &a);
+    sleep_ms(2300);
+
+    /* slide: a new window comes in from the left edge (rule changed by a live reload) */
+    write_config(cfg_path,
+                 "[general]\ntheme = test\n[animations]\nbezier = lin, 0, 0, 1, 1\n"
+                 "animation = windowsIn, 1, 20, lin, slide left\nanimation = windowsOut, 0\n"
+                 "animation = fade, 0\nanimation = border, 0\n");
+    sleep_ms(600);
+    struct win c;
+    win_open_ex(app, d, &c, "slide", 0xff000000u | C_CLIENT, 0, 1);
+    sleep_ms(500);
+    img = capture_screen(app, d);
+    expect_px(&img, 30, 98, C_CLIENT, "slide left: the window is entering from the left edge");
+    expect_px(&img, 148, 98, 0x000000, "slide left: it has not reached its place yet");
+    free(img.px);
+    sleep_ms(2300);
+    img = capture_screen(app, d);
+    expect_px(&img, 148, 98, C_CLIENT, "slide left: the window is in its place");
+    free(img.px);
+    win_destroy(d, &c);
+    img = capture_screen(app, d);
+    expect_px(&img, 148, 98, 0x000000, "windowsOut is off: the window vanishes at once");
+    free(img.px);
+
+    /* border: when another window takes the focus the border color moves from the focused to the
+     * unfocused color instead of jumping */
+    write_config(cfg_path,
+                 "[general]\ntheme = test\n[animations]\nbezier = lin, 0, 0, 1, 1\n"
+                 "animation = windows, 0\nanimation = fade, 0\nanimation = border, 1, 20, lin\n");
+    sleep_ms(600);
+    struct win w1, w2;
+    win_open_ex(app, d, &w1, "first", 0xff000000u | C_CLIENT, 1, 1);
+    sleep_ms(300);
+    img = capture_screen(app, d);
+    expect_px(&img, 148, 49, C_BORDER_F, "border: a new window starts with the focused color");
+    free(img.px);
+    win_open_ex(app, d, &w2, "second", 0xff000000u | C_CLIENT, 1, 1); /* takes the focus */
+    sleep_ms(500);
+    img = capture_screen(app, d);
+    int r = red_of(&img, 148, 49), b = blue_of(&img, 148, 49);
+    free(img.px);
+    if (r < 0x30 || r > 0xe0 || b < 0x20 || b > 0xd0) {
+        char msg[120];
+        snprintf(msg, sizeof msg,
+                 "border: the unfocused window's border is r=0x%02x b=0x%02x half a second in, expected a color in between", r, b);
+        fail(msg);
+    }
+    sleep_ms(2300);
+    img = capture_screen(app, d);
+    expect_px(&img, 148, 49, C_BORDER_U, "border: the color ended at the unfocused one");
+    free(img.px);
+
+    win_destroy(d, &w2);
+    win_destroy(d, &w1);
+}
+
 /* -------------------------------------------------- scenario: workspaces */
 
 #define C_OTHER 0xc03050
@@ -1797,8 +1931,9 @@ int main(int argc, char **argv)
     int layers = !strcmp(mode, "layers");
     int workspaces = !strcmp(mode, "workspaces");
     int lock = !strcmp(mode, "lock");
-    if (!multi && !deco && !anim && !layers && !workspaces && !lock && strcmp(mode, "single") != 0) {
-        fail("unknown mode (use single, multi, deco, anim, layers, workspaces or lock)");
+    int hypr = !strcmp(mode, "hypr");
+    if (!multi && !deco && !anim && !layers && !workspaces && !lock && !hypr && strcmp(mode, "single") != 0) {
+        fail("unknown mode (use single, multi, deco, anim, layers, workspaces, lock or hypr)");
     }
 
     struct app app = {0};
@@ -1855,6 +1990,16 @@ int main(int argc, char **argv)
 #endif
     }
 
+    if (hypr) {
+#ifdef HAVE_VIRTUAL_INPUT
+        run_hypr(&app, display);
+        wl_display_disconnect(display);
+        printf("client_test hypr: OK\n");
+        return 0;
+#else
+        fail("the hypr scenario needs the wlroots protocol files");
+#endif
+    }
     if (lock) {
 #ifdef HAVE_VIRTUAL_INPUT
         run_lock(&app, display);

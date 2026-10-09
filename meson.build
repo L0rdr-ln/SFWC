@@ -36,12 +36,20 @@ inifile_dep = declare_dependency(
   include_directories: include_directories('src'),
   dependencies: inih_dep)
 
+libm = meson.get_compiler('c').find_library('m')
+
+anim_lib = static_library('sfwc_anim', 'src/anim.c')
+anim_dep = declare_dependency(
+  link_with: anim_lib,
+  include_directories: include_directories('src'),
+  dependencies: libm)
+
 config_lib = static_library('sfwc_config', 'src/config.c',
-  dependencies: [inifile_dep, xkbcommon])
+  dependencies: [inifile_dep, xkbcommon, anim_dep])
 config_dep = declare_dependency(
   link_with: config_lib,
   include_directories: include_directories('src'),
-  dependencies: [inifile_dep, xkbcommon])
+  dependencies: [inifile_dep, xkbcommon, anim_dep])
 
 theme_lib = static_library('sfwc_theme', 'src/theme.c', dependencies: inifile_dep)
 theme_dep = declare_dependency(
@@ -49,7 +57,6 @@ theme_dep = declare_dependency(
   include_directories: include_directories('src'),
   dependencies: inifile_dep)
 
-libm = meson.get_compiler('c').find_library('m')
 
 template_lib = static_library('sfwc_template', 'src/template.c', dependencies: [theme_dep, libm])
 template_dep = declare_dependency(
@@ -61,11 +68,6 @@ template_dep = declare_dependency(
 theme_apply_exe = executable('sfwc-theme-apply', 'src/sfwc-theme-apply.c',
   dependencies: [template_dep, theme_dep], install: true)
 install_man('man/sfwc-theme-apply.1')
-
-anim_lib = static_library('sfwc_anim', 'src/anim.c')
-anim_dep = declare_dependency(
-  link_with: anim_lib,
-  include_directories: include_directories('src'))
 
 cairo = dependency('cairo')
 pangocairo = dependency('pangocairo')

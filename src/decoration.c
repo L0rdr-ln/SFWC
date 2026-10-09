@@ -99,6 +99,8 @@ static void frame_destroy(struct toplevel *t)
     }
     free(t->frame_title);
     t->frame_title = NULL;
+    t->focus_known = false; /* a new frame starts with the right colors, no transition */
+    t->border_anim.active = false;
 }
 
 /* (Re)create the frame for the current size, focus, title and theme; no-ops when nothing
@@ -131,10 +133,20 @@ void frame_refresh(struct toplevel *t)
     struct deco_insets in = deco_insets(theme);
     int ow = geo.width + in.left + in.right, oh = geo.height + in.top + in.bottom;
 
+    /* the focus look: switches at once, or fades when the `border` animation is on */
+    double target = focused ? 1.0 : 0.0;
+    if (!t->focus_known) {
+        t->focus_known = true;
+        t->focus_target = t->focus_mix = target;
+    } else if (t->focus_target != target) {
+        t->focus_target = target;
+        animate_border(t, t->focus_mix, target);
+    }
+
     bool title_changed = !t->frame_title || strcmp(t->frame_title, title) != 0;
-    if (t->frame_cw != geo.width || t->frame_ch != geo.height || t->frame_focused != focused ||
+    if (t->frame_cw != geo.width || t->frame_ch != geo.height || t->frame_mix != t->focus_mix ||
         t->frame_scale != scale || t->frame_gen != server->theme_gen || title_changed) {
-        cairo_surface_t *surf = deco_render_chrome(theme, geo.width, geo.height, focused, title, scale);
+        cairo_surface_t *surf = deco_render_chrome(theme, geo.width, geo.height, t->focus_mix, title, scale);
         set_scene_buffer_from_surface(t->chrome, surf);
         wlr_scene_buffer_set_dest_size(t->chrome, ow, oh);
         wlr_scene_node_set_position(&t->chrome->node, -in.left, -in.top);
@@ -158,6 +170,7 @@ void frame_refresh(struct toplevel *t)
     t->frame_cw = geo.width;
     t->frame_ch = geo.height;
     t->frame_focused = focused;
+    t->frame_mix = t->focus_mix;
     t->frame_scale = scale;
     t->frame_gen = server->theme_gen;
 }
