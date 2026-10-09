@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Starts sfwc on the headless backend, runs the test client against it and checks the
 # compositor's log and side effects.
-# Usage: run_client_test.sh <sfwc> <client_test> [single|multi|nested|deco|anim|layers|workspaces|lock|hypr|fx|plugins|wobbly]
+# Usage: run_client_test.sh <sfwc> <client_test> [single|multi|nested|deco|anim|layers|workspaces|lock|hypr|fx|plugins|wobbly|protocols]
 #   single: one output, input, snapping, live config reload, autostart, terminal
 #   multi:  two outputs (different size/scale/position), follow-mouse, output actions,
 #           reload-config key (config file watching is switched off)
@@ -192,6 +192,19 @@ THEME
     printf '[general]\ntheme = test\n' >"$SFWC_CONFIG"
     if fc-list 2>/dev/null | grep -q .; then export SFWC_TEST_FONTS=1; fi
     ;;
+protocols)
+    # two outputs (1x and 2x) for the fractional scale checks, click to focus
+    export SFWC_TEST_OUTPUTS=1024x600 SFWC_NO_CONFIG_WATCH=1
+    cat >"$SFWC_CONFIG" <<'CONF'
+[output:HEADLESS-1]
+position = 0,0
+[output:HEADLESS-2]
+scale = 2
+position = 0,720
+[keybinds]
+$mod+o = move-to-next-output
+CONF
+    ;;
 multi)
     # HEADLESS-2 is added by SFWC_TEST_OUTPUTS: 1024x600, scale 2 (logical 512x300), placed
     # below the first output. Both outputs are positioned explicitly because the order in
@@ -321,6 +334,9 @@ wobbly)
     ;;
 fx)
     grep -q "window unmapped" "$LOG" || fail "no window was ever closed"
+    ;;
+protocols)
+    grep -q "cursor shape: text" "$LOG" || fail "the cursor shape request was not honoured"
     ;;
 hypr)
     grep -q "workspace 2" "$LOG" || fail "the compositor never switched workspace"

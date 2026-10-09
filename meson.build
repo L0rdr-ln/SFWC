@@ -113,17 +113,32 @@ if get_option('compositor')
     output: 'ext-session-lock-v1-protocol.h',
     command: [wayland_scanner, 'server-header', '@INPUT@', '@OUTPUT@'])
 
+  # The headers of the other protocols that wlroots' public headers include. Each is generated
+  # from the wayland-protocols XML (or wlroots' own for the wlr-* ones).
+  pd = wayland_protos.get_variable('pkgdatadir')
+  proto_headers = []
+  foreach p : [
+      [pd / 'stable/viewporter/viewporter.xml', 'viewporter'],
+      [pd / 'staging/fractional-scale/fractional-scale-v1.xml', 'fractional-scale-v1'],
+      [pd / 'staging/cursor-shape/cursor-shape-v1.xml', 'cursor-shape-v1'],
+      [pd / 'staging/xdg-activation/xdg-activation-v1.xml', 'xdg-activation-v1'],
+    ]
+    proto_headers += custom_target(p[1] + '-protocol.h',
+      input: p[0], output: p[1] + '-protocol.h',
+      command: [wayland_scanner, 'server-header', '@INPUT@', '@OUTPUT@'])
+  endforeach
+
   sfwc_sources = files(
     'src/main.c', 'src/settings.c', 'src/window.c', 'src/workspace.c',
     'src/decoration.c', 'src/output.c', 'src/input.c', 'src/actions.c', 'src/cursor.c',
-    'src/layers.c', 'src/lock.c', 'src/foreign.c', 'src/idle.c', 'src/plugin.c')
+    'src/layers.c', 'src/lock.c', 'src/foreign.c', 'src/idle.c', 'src/plugin.c', 'src/protocols.c')
 
   # Plugins are loaded from <prefix>/<libdir>/sfwc/plugins (and the user's and $SFWC_PLUGIN_PATH).
   plugin_dir = get_option('prefix') / get_option('libdir') / 'sfwc' / 'plugins'
   libdl = meson.get_compiler('c').find_library('dl', required: false)
 
   sfwc_exe = executable('sfwc',
-    sfwc_sources, xdg_shell_h, layer_shell_h, session_lock_h,
+    sfwc_sources, xdg_shell_h, layer_shell_h, session_lock_h, proto_headers,
     dependencies: [wlroots, wayland_server, xkbcommon, libm, libdrm, libdl, config_dep, theme_dep, template_dep, deco_dep],
     include_directories: include_directories('include'),
     c_args: ['-Wno-unused-parameter', '-DSFWC_PLUGIN_DIR="' + plugin_dir + '"'],

@@ -186,6 +186,7 @@ int main(int argc, char *argv[])
     server.new_idle_inhibitor.notify = server_new_idle_inhibitor;
     wl_signal_add(&server.idle_inhibit_mgr->events.new_inhibitor, &server.new_idle_inhibitor);
     server.foreign_toplevel_mgr = wlr_foreign_toplevel_manager_v1_create(server.display);
+    protocols_init(&server);
     server.lock_mgr = wlr_session_lock_manager_v1_create(server.display);
     server.new_lock.notify = server_new_lock;
     wl_signal_add(&server.lock_mgr->events.new_lock, &server.new_lock);
@@ -252,6 +253,7 @@ int main(int argc, char *argv[])
     wl_list_remove(&server.request_set_primary_selection.link);
     wl_list_remove(&server.new_idle_inhibitor.link);
     wl_list_remove(&server.new_lock.link);
+    protocols_finish(&server);
     if (server.cur_lock) {
         wl_list_remove(&server.lock_new_surface.link);
         wl_list_remove(&server.lock_unlock.link);

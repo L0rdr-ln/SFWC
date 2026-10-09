@@ -114,6 +114,10 @@ struct server {
     struct wl_listener new_idle_inhibitor;
     int idle_inhibitors;
     struct wlr_foreign_toplevel_manager_v1 *foreign_toplevel_mgr;
+    struct wlr_cursor_shape_manager_v1 *cursor_shape_mgr;
+    struct wl_listener request_cursor_shape;
+    struct wlr_xdg_activation_v1 *xdg_activation;
+    struct wl_listener request_activate;
     struct wl_list keyboards;
     /* Virtual input (tests only, SFWC_ENABLE_VIRTUAL_INPUT=1): any client could
      * otherwise inject keystrokes. */
@@ -282,6 +286,10 @@ void plugins_workspace_entered(struct server *server, int old_ws, int new_ws);
 void plugins_layer_map(struct server *server, struct wlr_scene_tree *tree);
 void plugins_layer_unmap(struct server *server, struct wlr_scene_tree *tree);
 void plugins_finish(struct server *server);
+
+/* protocols.c */
+void protocols_init(struct server *server);
+void protocols_finish(struct server *server);
 
 /* window.c */
 struct wlr_box toplevel_geometry(struct toplevel *t);

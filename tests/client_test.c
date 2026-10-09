@@ -24,6 +24,9 @@
 #include "xdg-output-unstable-v1-client-protocol.h"
 #include "xdg-decoration-unstable-v1-client-protocol.h"
 #include "xdg-shell-client-protocol.h"
+#include "fractional-scale-v1-client-protocol.h"
+#include "cursor-shape-v1-client-protocol.h"
+#include "xdg-activation-v1-client-protocol.h"
 #ifdef HAVE_VIRTUAL_INPUT
 #include <xkbcommon/xkbcommon.h>
 #include "virtual-keyboard-unstable-v1-client-protocol.h"
@@ -64,6 +67,8 @@ struct win {
     int auto_buffer, buf_w, buf_h, pend_w, pend_h;
     uint32_t color;
     int deco_mode;
+    struct wp_fractional_scale_v1 *fscale;
+    int pref_scale; /* wp_fractional_scale_v1.preferred_scale, 0 = none yet */
 };
 
 #define MAX_GLOBALS 64
@@ -76,6 +81,10 @@ struct app {
     struct xdg_wm_base *wm_base;
     struct zxdg_output_manager_v1 *xdg_out_mgr;
     struct zxdg_decoration_manager_v1 *deco_mgr;
+    struct wp_fractional_scale_manager_v1 *fscale_mgr;
+    struct wp_cursor_shape_manager_v1 *shape_mgr;
+    struct xdg_activation_v1 *activation;
+    uint32_t kb_serial, ptr_serial; /* of the last enter */
     struct out_info outs[MAX_OUTS];
     int n_outs;
     struct wl_output *output; /* first output */
@@ -226,6 +235,7 @@ static void kb_enter(void *data, struct wl_keyboard *k, uint32_t serial, struct 
 {
     struct app *app = data;
     app->kb_surface = s;
+    app->kb_serial = serial;
     app->kb_enter++;
 }
 static void kb_leave(void *data, struct wl_keyboard *k, uint32_t serial, struct wl_surface *s)
@@ -266,6 +276,7 @@ static void ptr_enter(void *data, struct wl_pointer *p, uint32_t serial, struct 
 {
     struct app *app = data;
     app->ptr_enter++;
+    app->ptr_serial = serial;
     app->ptr_surface = s;
     app->ptr_sx = wl_fixed_to_double(x);
     app->ptr_sy = wl_fixed_to_double(y);
@@ -399,6 +410,12 @@ static void registry_global(void *data, struct wl_registry *reg, uint32_t name,
         wl_seat_add_listener(app->seat, &seat_listener, app);
     } else if (strcmp(interface, zxdg_decoration_manager_v1_interface.name) == 0) {
         app->deco_mgr = wl_registry_bind(reg, name, &zxdg_decoration_manager_v1_interface, 1);
+    } else if (strcmp(interface, wp_fractional_scale_manager_v1_interface.name) == 0) {
+        app->fscale_mgr = wl_registry_bind(reg, name, &wp_fractional_scale_manager_v1_interface, 1);
+    } else if (strcmp(interface, wp_cursor_shape_manager_v1_interface.name) == 0) {
+        app->shape_mgr = wl_registry_bind(reg, name, &wp_cursor_shape_manager_v1_interface, 1);
+    } else if (strcmp(interface, xdg_activation_v1_interface.name) == 0) {
+        app->activation = wl_registry_bind(reg, name, &xdg_activation_v1_interface, 1);
     } else if (strcmp(interface, zxdg_output_manager_v1_interface.name) == 0) {
         app->xdg_out_mgr = wl_registry_bind(reg, name, &zxdg_output_manager_v1_interface, 2);
 #ifdef HAVE_VIRTUAL_INPUT
@@ -546,6 +563,14 @@ static const struct zxdg_toplevel_decoration_v1_listener win_deco_listener = {
     .configure = win_deco_configure,
 };
 
+static void fscale_preferred(void *data, struct wp_fractional_scale_v1 *f, uint32_t scale)
+{
+    ((struct win *)data)->pref_scale = scale;
+}
+static const struct wp_fractional_scale_v1_listener fscale_listener = {
+    .preferred_scale = fscale_preferred,
+};
+
 /* want_deco: negotiate server-side decorations; auto_buffer: follow configured sizes */
 static void win_open_ex(struct app *app, struct wl_display *d, struct win *w, const char *title,
                         uint32_t color, int want_deco, int auto_buffer)
@@ -555,6 +580,10 @@ static void win_open_ex(struct app *app, struct wl_display *d, struct win *w, co
     w->color = color;
     w->auto_buffer = auto_buffer;
     w->surface = wl_compositor_create_surface(app->compositor);
+    if (app->fscale_mgr) {
+        w->fscale = wp_fractional_scale_manager_v1_get_fractional_scale(app->fscale_mgr, w->surface);
+        wp_fractional_scale_v1_add_listener(w->fscale, &fscale_listener, w);
+    }
     w->xs = xdg_wm_base_get_xdg_surface(app->wm_base, w->surface);
     xdg_surface_add_listener(w->xs, &win_xs_listener, w);
     w->tl = xdg_surface_get_toplevel(w->xs);
@@ -591,6 +620,9 @@ static void win_destroy(struct wl_display *d, struct win *w)
 {
     if (w->deco) {
         zxdg_toplevel_decoration_v1_destroy(w->deco);
+    }
+    if (w->fscale) {
+        wp_fractional_scale_v1_destroy(w->fscale);
     }
     xdg_toplevel_destroy(w->tl);
     xdg_surface_destroy(w->xs);
@@ -1888,6 +1920,84 @@ static void run_workspaces(struct app *app, struct wl_display *d)
     win_destroy(d, &a);
 }
 
+/* ------------------------------------------------- scenario: protocols */
+
+static void token_done(void *data, struct xdg_activation_token_v1 *t, const char *token)
+{
+    *(char **)data = strdup(token);
+}
+static const struct xdg_activation_token_v1_listener token_listener = {.done = token_done};
+
+static void wait_pref(struct wl_display *d, struct win *w, int want, const char *what)
+{
+    for (int i = 0; i < 40 && w->pref_scale != want; i++) {
+        wl_display_roundtrip(d);
+        usleep(50 * 1000);
+    }
+    if (w->pref_scale != want) {
+        char msg[160];
+        snprintf(msg, sizeof msg, "%s: preferred_scale %d, wanted %d", what, w->pref_scale, want);
+        fail(msg);
+    }
+}
+
+static void run_protocols(struct app *app, struct wl_display *d)
+{
+    if (!app->fscale_mgr || !app->shape_mgr || !app->activation) {
+        fail("fractional-scale / cursor-shape / xdg-activation could not be bound");
+    }
+    app->ext_w = 1280;
+    app->ext_h = 720 + 300;
+    setup_virtual_devices(app, d, 0);
+
+    /* fractional scale: 1.0 on the first output (120), 2.0 on the second (240), follows the window */
+    struct win a, b;
+    vptr_move(app, d, 100, 100);
+    win_open(app, d, &a, "proto-A", 0xff3050c0);
+    wait_pref(d, &a, 120, "window on the 1x output");
+    vptr_move(app, d, 100, 800);
+    win_open(app, d, &b, "proto-B", 0xffc03050);
+    wait_pref(d, &b, 240, "window on the 2x output");
+    vtap(app, d, MOD_ALT, KEY_O);
+    wait_pref(d, &b, 120, "window moved to the 1x output");
+
+    /* cursor shape: a request with the pointer's enter serial is honoured (checked in the log),
+     * one for another client's serial is not an error */
+    vptr_move(app, d, 60, 60);
+    vptr_move(app, d, 70, 70);
+    if (app->ptr_surface != a.surface) {
+        fail("pointer is not over window A");
+    }
+    struct wp_cursor_shape_device_v1 *dev = wp_cursor_shape_manager_v1_get_pointer(app->shape_mgr, app->pointer);
+    wp_cursor_shape_device_v1_set_shape(dev, app->ptr_serial, WP_CURSOR_SHAPE_DEVICE_V1_SHAPE_TEXT);
+    wl_display_roundtrip(d);
+    wp_cursor_shape_device_v1_destroy(dev);
+
+    /* activation: a valid token focuses the window, a made up one does not */
+    expect_focus(app, d, b.surface, "window B should have the keyboard focus before the activation");
+    struct xdg_activation_token_v1 *tok = xdg_activation_v1_get_activation_token(app->activation);
+    char *str = NULL;
+    xdg_activation_token_v1_add_listener(tok, &token_listener, &str);
+    xdg_activation_token_v1_set_serial(tok, app->kb_serial, app->seat);
+    xdg_activation_token_v1_commit(tok);
+    wl_display_roundtrip(d);
+    if (!str) {
+        fail("no activation token received");
+    }
+    xdg_activation_v1_activate(app->activation, "not-a-token", a.surface);
+    wl_display_roundtrip(d);
+    if (app->kb_surface == a.surface) {
+        fail("activation with an unknown token focused the window");
+    }
+    xdg_activation_v1_activate(app->activation, str, a.surface);
+    expect_focus(app, d, a.surface, "xdg-activation did not focus the window");
+    free(str);
+    xdg_activation_token_v1_destroy(tok);
+
+    win_destroy(d, &b);
+    win_destroy(d, &a);
+}
+
 /* ----------------------------------------------------- scenario: session lock */
 
 struct lock_state {
@@ -2173,9 +2283,10 @@ int main(int argc, char **argv)
     int fx = !strcmp(mode, "fx");
     int plugins = !strcmp(mode, "plugins");
     int wobbly = !strcmp(mode, "wobbly");
-    if (!multi && !deco && !anim && !layers && !workspaces && !lock && !hypr && !fx && !plugins && !wobbly &&
+    int protocols = !strcmp(mode, "protocols");
+    if (!multi && !deco && !anim && !layers && !workspaces && !lock && !hypr && !fx && !plugins && !wobbly && !protocols &&
         strcmp(mode, "single") != 0) {
-        fail("unknown mode (use single, multi, deco, anim, layers, workspaces, lock, hypr, fx, plugins or wobbly)");
+        fail("unknown mode (use single, multi, deco, anim, layers, workspaces, lock, hypr, fx, plugins, wobbly or protocols)");
     }
 
     struct app app = {0};
@@ -2195,6 +2306,10 @@ int main(int argc, char **argv)
         "zwlr_foreign_toplevel_manager_v1",
         "zwlr_layer_shell_v1",
         "zxdg_decoration_manager_v1",
+        "wp_viewporter",
+        "wp_fractional_scale_manager_v1",
+        "wp_cursor_shape_manager_v1",
+        "xdg_activation_v1",
     };
     for (size_t i = 0; i < sizeof required / sizeof *required; i++) {
         int found = 0;
@@ -2232,6 +2347,16 @@ int main(int argc, char **argv)
 #endif
     }
 
+    if (protocols) {
+#ifdef HAVE_VIRTUAL_INPUT
+        run_protocols(&app, display);
+        wl_display_disconnect(display);
+        printf("client_test protocols: OK\n");
+        return 0;
+#else
+        fail("the protocols scenario needs the wlroots protocol files");
+#endif
+    }
     if (fx) {
 #ifdef HAVE_VIRTUAL_INPUT
         run_fx(&app, display);

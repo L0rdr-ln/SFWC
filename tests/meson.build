@@ -81,6 +81,19 @@ if get_option('compositor')
   client_sources += custom_target('ext-session-lock-v1-protocol.c',
     input: session_lock_xml, output: 'ext-session-lock-v1-protocol.c',
     command: [wayland_scanner, 'private-code', '@INPUT@', '@OUTPUT@'])
+  foreach p : [
+      [pd / 'staging/fractional-scale/fractional-scale-v1.xml', 'fractional-scale-v1'],
+      [pd / 'staging/cursor-shape/cursor-shape-v1.xml', 'cursor-shape-v1'],
+      [pd / 'staging/xdg-activation/xdg-activation-v1.xml', 'xdg-activation-v1'],
+      [pd / 'stable/tablet/tablet-v2.xml', 'tablet-v2'],
+    ]
+    client_sources += custom_target(p[1] + '-client-protocol.h',
+      input: p[0], output: p[1] + '-client-protocol.h',
+      command: [wayland_scanner, 'client-header', '@INPUT@', '@OUTPUT@'])
+    client_sources += custom_target(p[1] + '-protocol.c',
+      input: p[0], output: p[1] + '-protocol.c',
+      command: [wayland_scanner, 'private-code', '@INPUT@', '@OUTPUT@'])
+  endforeach
   client_deps = [wayland_client]
   client_args = ['-Wno-unused-parameter']
 
@@ -111,7 +124,7 @@ if get_option('compositor')
 
   client_test = executable('client_test', 'client_test.c', client_sources,
     dependencies: client_deps, c_args: client_args)
-  foreach mode : ['single', 'multi', 'nested', 'deco', 'layers', 'workspaces', 'lock', 'plugins']
+  foreach mode : ['single', 'multi', 'nested', 'deco', 'layers', 'workspaces', 'lock', 'plugins', 'protocols']
     test('compositor-client-' + mode, find_program('bash'),
       args: [files('run_client_test.sh'), sfwc_exe, client_test, mode],
       env: {'SFWC_PLUGIN_PATH': meson.project_build_root() / 'plugins'},
