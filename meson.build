@@ -60,12 +60,6 @@ anim_dep = declare_dependency(
   link_with: anim_lib,
   include_directories: include_directories('src'))
 
-# The wobbly mesh (plugins/wobbly) has no wlroots dependency, so it is unit-tested everywhere.
-mesh_lib = static_library('sfwc_mesh', 'plugins/wobbly/mesh.c', dependencies: libm)
-mesh_dep = declare_dependency(
-  link_with: mesh_lib,
-  include_directories: include_directories('plugins/wobbly'))
-
 cairo = dependency('cairo')
 pangocairo = dependency('pangocairo')
 fontconfig = dependency('fontconfig')

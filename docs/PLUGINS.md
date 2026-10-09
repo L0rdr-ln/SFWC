@@ -4,11 +4,16 @@ The compositor core stays small. Anything that is "nice to have" (effects, extra
 live in a plugin: a shared object that sfwc loads when the config asks for it. A system without
 plugins pays for the loader (about 250 lines) and nothing else.
 
-Shipped plugins:
+The plugins themselves live in their own repository,
+[sfwc-plugins](https://github.com/L0rdr-ln/sfwc-plugins), so that a minimal install carries none of
+them:
 
 | plugin | what it does |
 |---|---|
-| `wobbly` | windows wobble like jelly when they move ([settings](#wobbly)) |
+| `wobbly` | windows wobble like jelly when they move |
+
+Build and install them with `meson setup build && meson install -C build` there; each plugin's
+settings are described in that repository's README.
 
 ## Using plugins
 
@@ -39,25 +44,6 @@ write to is not loaded.
 compositor can: read your windows, log keystrokes it is given, run programs. Only install plugins
 you would also run as programs. (The config file is no safer: `spawn:` and `[autostart]` already
 run commands.)
-
-## wobbly
-
-Windows are drawn on a grid of springs. When a window moves (dragging, maximize, snapping, "next
-output") the grid lags behind and swings back. While a window is dragged, the part near the
-pointer follows closely and the far side trails.
-
-| key | default | |
-|---|---|---|
-| `grid` | 6 | nodes per side of the mesh, 3 to 12 |
-| `spring` | 120 | how hard a node is pulled back to its place, 1 to 1000 |
-| `friction` | 9 | damping, 0.5 to 100. About `2 * sqrt(spring)` is critical (no overshoot); less swings longer, more is sluggish |
-
-How it works and its limits: wlroots' scene graph cannot warp a picture, so while a window swings
-it is cut into tiles of about 40 px that are moved and stretched along the mesh; the window's own
-pictures stay in place, invisible, so input and frame callbacks keep working. The edges of the
-tiles are straight, so large stretches can show faint seams, and big windows cost some CPU while
-they swing. A window that is being resized does not wobble. The sfwc animations and wobbling do
-not mix: a window that is fading in is left alone.
 
 ## Writing a plugin
 
@@ -98,7 +84,7 @@ SFWC_PLUGIN_EXPORT const struct sfwc_plugin *sfwc_plugin_entry(void) { return &p
 Build it as a shared module (`-shared -fPIC`, or meson's `shared_module(..., name_prefix: '')`)
 against **the same wlroots version as the compositor**; the loader compares `WLR_VERSION_STR` and
 refuses anything else. Link wlroots dynamically so that the plugin and the compositor use the same
-copy. `plugins/hooktest/hooktest.c` is a complete small plugin; `plugins/wobbly/` is a real one.
+copy. `plugins/hooktest/hooktest.c` is a complete small plugin; `wobbly` in sfwc-plugins is a real one.
 
 ### Callbacks
 

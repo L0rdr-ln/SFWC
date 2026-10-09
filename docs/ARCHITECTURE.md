@@ -73,6 +73,6 @@ it loads `NAME.so` for every `load = NAME` in `[plugins]`, hands each plugin a `
 (a table of functions, no internal structs), and calls its `frame` callback from
 `output_frame()` after the animations, `toplevel_unmap` from `toplevel_unmap()` before the close
 animation takes its picture, `reconfigure` from `reload_config()`, `fini` at shutdown.
-`plugins/` holds the plugins built with the compositor (`wobbly`) and two test plugins
-(`hooktest`, `badplugin`). wlroots is built or linked as a shared library so that plugins share
+`plugins/` holds two test plugins (`hooktest`, `badplugin`); real plugins live in the
+sfwc-plugins repository. wlroots is built or linked as a shared library so that plugins share
 the compositor's copy.

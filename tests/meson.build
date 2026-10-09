@@ -13,9 +13,6 @@ test_theme = executable('test_theme', 'test_theme.c',
   c_args: ['-DSRC_ROOT="' + meson.project_source_root() + '"'])
 test('theme-parser', test_theme)
 
-test_wobbly = executable('test_wobbly', 'test_wobbly.c', dependencies: [mesh_dep, libm])
-test('wobbly-mesh', test_wobbly)
-
 test_deco = executable('test_deco', 'test_deco.c',
   dependencies: [deco_dep, fontconfig])
 test('decoration-rendering', test_deco)
@@ -117,7 +114,7 @@ if get_option('compositor')
 
   client_test = executable('client_test', 'client_test.c', client_sources,
     dependencies: client_deps, c_args: client_args)
-  foreach mode : ['single', 'multi', 'nested', 'deco', 'anim', 'layers', 'workspaces', 'lock', 'plugins', 'wobbly']
+  foreach mode : ['single', 'multi', 'nested', 'deco', 'anim', 'layers', 'workspaces', 'lock', 'plugins']
     test('compositor-client-' + mode, find_program('bash'),
       args: [files('run_client_test.sh'), sfwc_exe, client_test, mode],
       env: {'SFWC_PLUGIN_PATH': meson.project_build_root() / 'plugins'},

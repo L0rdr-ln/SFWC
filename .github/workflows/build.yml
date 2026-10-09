@@ -49,6 +49,5 @@ jobs:
                    include/sfwc/sfwc-plugin.h; do
             test -s "$f" || { echo "missing from the install: $f"; exit 1; }
           done
-          find . -path '*/sfwc/plugins/wobbly.so' | grep -q . || { echo "missing from the install: plugins/wobbly.so"; exit 1; }
           find . -name sfwc-plugin.pc | grep -q . || { echo "missing from the install: sfwc-plugin.pc"; exit 1; }
-          find . -name hooktest.so | grep -q . && { echo "test plugin was installed"; exit 1; } || true
+          find . -name hooktest.so -o -name badplugin.so | grep -q . && { echo "test plugin was installed"; exit 1; } || true

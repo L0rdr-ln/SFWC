@@ -12,9 +12,11 @@ Versions follow the roadmap milestones while the project is pre-1.0:
   windows, settings, and are loaded, reconfigured and unloaded live on config reload. Missing,
   refusing, wrong-version or wrong-wlroots plugins are logged and skipped. `sfwc-plugin.pc` and the
   header are installed for plugins in other repositories.
-- First plugin: `wobbly` (windows wobble on a spring mesh when moved).
-- Tests: `[plugins]`/`[plugin:NAME]` parsing, the wobbly mesh, and end-to-end scenarios for the
-  plugin API (`compositor-client-plugins`, with a test plugin) and for wobbly windows.
+- First plugin: `wobbly` (windows wobble on a spring mesh when moved). It lives in the separate
+  repository sfwc-plugins; the compositor only has the API and two test plugins.
+- Tests: `[plugins]`/`[plugin:NAME]` parsing and an end-to-end scenario for the plugin API
+  (`compositor-client-plugins`, with a test plugin). The `wobbly` scenario of the test client is run
+  by the sfwc-plugins CI against the real plugin.
 
 ### Changed
 - wlroots is built as a shared library (plugins must share the compositor's copy).

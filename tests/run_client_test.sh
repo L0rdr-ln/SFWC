@@ -65,6 +65,8 @@ greeting = hello
 CONF
     ;;
 wobbly)
+    # Needs the wobbly plugin of the sfwc-plugins repository: SFWC_PLUGIN_PATH must point at the
+    # directory with wobbly.so (run by that repository's CI, not by `meson test` here).
     # Wobbly windows with critical damping (no overshoot, slow enough to see the lag)
     cat >"$SFWC_CONFIG" <<'CONF'
 [plugins]
