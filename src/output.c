@@ -187,8 +187,10 @@ static void output_destroy(struct wl_listener *listener, void *data)
     wl_list_remove(&output->frame.link);
     wl_list_remove(&output->request_state.link);
     wl_list_remove(&output->destroy.link);
+    struct server *server = output->server;
     wl_list_remove(&output->link);
     free(output);
+    output_mgmt_publish(server);
 }
 
 void server_new_output(struct wl_listener *listener, void *data)
@@ -225,17 +227,29 @@ void server_new_output(struct wl_listener *listener, void *data)
 
     if (oc && !oc->enabled) {
         wlr_log(WLR_INFO, "output %s is disabled in the config", wlr_output->name);
+        output_mgmt_publish(server);
         return;
     }
+    output_attach(output, oc && oc->has_pos, oc ? oc->x : 0, oc ? oc->y : 0);
+    wlr_log(WLR_INFO, "output %s added", wlr_output->name);
+    output_mgmt_publish(server);
+}
+
+/* Put an enabled output into the layout (at x,y or the next free place) and draw the scene on it. */
+void output_attach(struct output *output, bool has_pos, int x, int y)
+{
+    struct server *server = output->server;
+    struct wlr_output *wlr_output = output->wlr_output;
     struct wlr_output_layout_output *l_output =
-        (oc && oc->has_pos) ? wlr_output_layout_add(server->output_layout, wlr_output, oc->x, oc->y)
-                            : wlr_output_layout_add_auto(server->output_layout, wlr_output);
-    struct wlr_scene_output *scene_output = wlr_scene_output_create(server->scene, wlr_output);
-    wlr_scene_output_layout_add_output(server->scene_layout, l_output, scene_output);
+        has_pos ? wlr_output_layout_add(server->output_layout, wlr_output, x, y)
+                : wlr_output_layout_add_auto(server->output_layout, wlr_output);
+    if (!wlr_scene_get_scene_output(server->scene, wlr_output)) {
+        struct wlr_scene_output *scene_output = wlr_scene_output_create(server->scene, wlr_output);
+        wlr_scene_output_layout_add_output(server->scene_layout, l_output, scene_output);
+    }
     output->usable_area = (struct wlr_box){0};
     arrange_layers(output); /* also sets the usable area */
     lock_update_bg(server);
-    wlr_log(WLR_INFO, "output %s added", wlr_output->name);
 }
 
 /* ------------------------------------------------------------ layer shell */

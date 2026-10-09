@@ -109,7 +109,7 @@ if get_option('compositor')
     # Paths are passed as plain strings: meson's sandbox rejects `input:` files that
     # live inside a nested subproject.
     foreach name : ['virtual-keyboard-unstable-v1', 'wlr-virtual-pointer-unstable-v1', 'wlr-screencopy-unstable-v1',
-                  'wlr-layer-shell-unstable-v1']
+                  'wlr-layer-shell-unstable-v1', 'wlr-output-management-unstable-v1']
       xml = wlr_protocol_dir / name + '.xml'
       client_sources += custom_target(name + '-client-protocol.h',
         output: name + '-client-protocol.h',

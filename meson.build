@@ -134,7 +134,7 @@ if get_option('compositor')
   sfwc_sources = files(
     'src/main.c', 'src/settings.c', 'src/window.c', 'src/workspace.c',
     'src/decoration.c', 'src/output.c', 'src/input.c', 'src/actions.c', 'src/cursor.c',
-    'src/layers.c', 'src/lock.c', 'src/foreign.c', 'src/idle.c', 'src/plugin.c', 'src/protocols.c', 'src/pointer_config.c')
+    'src/layers.c', 'src/lock.c', 'src/foreign.c', 'src/idle.c', 'src/plugin.c', 'src/protocols.c', 'src/pointer_config.c', 'src/output_mgmt.c')
 
   # Plugins are loaded from <prefix>/<libdir>/sfwc/plugins (and the user's and $SFWC_PLUGIN_PATH).
   plugin_dir = get_option('prefix') / get_option('libdir') / 'sfwc' / 'plugins'

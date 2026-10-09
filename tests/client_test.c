@@ -36,6 +36,7 @@
 #include "wlr-layer-shell-unstable-v1-client-protocol.h"
 #include "wlr-screencopy-unstable-v1-client-protocol.h"
 #include "wlr-virtual-pointer-unstable-v1-client-protocol.h"
+#include "wlr-output-management-unstable-v1-client-protocol.h"
 #endif
 
 #define W 200
@@ -90,6 +91,11 @@ struct app {
     struct zwp_relative_pointer_manager_v1 *rel_mgr;
     int rel_events;
     double rel_dx, rel_dy; /* sum of the relative motion received */
+    struct zwlr_output_manager_v1 *out_mgr;
+    uint32_t out_serial;
+    int out_done;           /* manager.done events seen */
+    int cfg_result;         /* 1 succeeded, -1 failed/cancelled, 0 pending */
+    struct { struct zwlr_output_head_v1 *head; char name[32]; int enabled, x, y, alive; double scale; } heads[8];
     int constraint_on;     /* locked / confined events minus unlocked / unconfined */
     uint32_t kb_serial, ptr_serial; /* of the last enter */
     struct out_info outs[MAX_OUTS];
@@ -401,6 +407,65 @@ static const struct zxdg_output_v1_listener xdg_output_listener = {
     .description = xo_description,
 };
 
+#ifdef HAVE_VIRTUAL_INPUT
+/* ---------------------------------------------- wlr-output-management (client side) */
+
+static int head_slot(struct app *app, struct zwlr_output_head_v1 *h)
+{
+    for (int i = 0; i < 8; i++) {
+        if (app->heads[i].head == h) {
+            return i;
+        }
+    }
+    return -1;
+}
+#define HEAD_CB(name, ...) static void name(void *data, struct zwlr_output_head_v1 *h, ##__VA_ARGS__)
+HEAD_CB(hd_name, const char *n) { struct app *a = data; int i = head_slot(a, h); if (i >= 0) snprintf(a->heads[i].name, 32, "%s", n); }
+HEAD_CB(hd_desc, const char *n) {}
+HEAD_CB(hd_size, int32_t w, int32_t hh) {}
+HEAD_CB(hd_mode, struct zwlr_output_mode_v1 *m) {}
+HEAD_CB(hd_enabled, int32_t e) { struct app *a = data; int i = head_slot(a, h); if (i >= 0) a->heads[i].enabled = e; }
+HEAD_CB(hd_current, struct zwlr_output_mode_v1 *m) {}
+HEAD_CB(hd_position, int32_t x, int32_t y) { struct app *a = data; int i = head_slot(a, h); if (i >= 0) { a->heads[i].x = x; a->heads[i].y = y; } }
+HEAD_CB(hd_transform, int32_t t) {}
+HEAD_CB(hd_scale, wl_fixed_t s) { struct app *a = data; int i = head_slot(a, h); if (i >= 0) a->heads[i].scale = wl_fixed_to_double(s); }
+HEAD_CB(hd_finished) { struct app *a = data; int i = head_slot(a, h); if (i >= 0) a->heads[i].alive = 0; zwlr_output_head_v1_destroy(h); if (i >= 0) a->heads[i].head = NULL; }
+static const struct zwlr_output_head_v1_listener head_listener = {
+    .name = hd_name, .description = hd_desc, .physical_size = hd_size, .mode = hd_mode,
+    .enabled = hd_enabled, .current_mode = hd_current, .position = hd_position,
+    .transform = hd_transform, .scale = hd_scale, .finished = hd_finished,
+};
+static void om_head(void *data, struct zwlr_output_manager_v1 *m, struct zwlr_output_head_v1 *h)
+{
+    struct app *app = data;
+    for (int i = 0; i < 8; i++) {
+        if (!app->heads[i].head) {
+            memset(&app->heads[i], 0, sizeof app->heads[i]);
+            app->heads[i].head = h;
+            app->heads[i].alive = 1;
+            zwlr_output_head_v1_add_listener(h, &head_listener, app);
+            return;
+        }
+    }
+    fail("too many output heads");
+}
+static void om_done(void *data, struct zwlr_output_manager_v1 *m, uint32_t serial)
+{
+    struct app *app = data;
+    app->out_serial = serial;
+    app->out_done++;
+}
+static void om_finished(void *data, struct zwlr_output_manager_v1 *m) {}
+static const struct zwlr_output_manager_v1_listener out_mgr_listener = {
+    .head = om_head, .done = om_done, .finished = om_finished,
+};
+static void oc_ok(void *data, struct zwlr_output_configuration_v1 *c) { ((struct app *)data)->cfg_result = 1; }
+static void oc_fail(void *data, struct zwlr_output_configuration_v1 *c) { ((struct app *)data)->cfg_result = -1; }
+static const struct zwlr_output_configuration_v1_listener out_cfg_listener = {
+    .succeeded = oc_ok, .failed = oc_fail, .cancelled = oc_fail,
+};
+#endif
+
 static void registry_global(void *data, struct wl_registry *reg, uint32_t name,
                             const char *interface, uint32_t version)
 {
@@ -423,6 +488,11 @@ static void registry_global(void *data, struct wl_registry *reg, uint32_t name,
         app->shape_mgr = wl_registry_bind(reg, name, &wp_cursor_shape_manager_v1_interface, 1);
     } else if (strcmp(interface, xdg_activation_v1_interface.name) == 0) {
         app->activation = wl_registry_bind(reg, name, &xdg_activation_v1_interface, 1);
+#ifdef HAVE_VIRTUAL_INPUT
+    } else if (strcmp(interface, zwlr_output_manager_v1_interface.name) == 0) {
+        app->out_mgr = wl_registry_bind(reg, name, &zwlr_output_manager_v1_interface, 1);
+        zwlr_output_manager_v1_add_listener(app->out_mgr, &out_mgr_listener, app);
+#endif
     } else if (strcmp(interface, zwp_pointer_constraints_v1_interface.name) == 0) {
         app->constraints = wl_registry_bind(reg, name, &zwp_pointer_constraints_v1_interface, 1);
     } else if (strcmp(interface, zwp_relative_pointer_manager_v1_interface.name) == 0) {
@@ -2044,6 +2114,125 @@ static void run_constraints(struct app *app, struct wl_display *d, struct win *a
     wl_display_roundtrip(d);
 }
 
+static int find_head(struct app *app, const char *name)
+{
+    for (int i = 0; i < 8; i++) {
+        if (app->heads[i].head && app->heads[i].alive && !strcmp(app->heads[i].name, name)) {
+            return i;
+        }
+    }
+    fail("output head not announced");
+    return -1;
+}
+
+/* Waits until the manager announced a state with `done` after the one we have. */
+static void wait_out_done(struct app *app, struct wl_display *d, int prev, const char *what)
+{
+    for (int i = 0; i < 40 && app->out_done == prev; i++) {
+        wl_display_roundtrip(d);
+        usleep(25 * 1000);
+    }
+    if (app->out_done == prev) {
+        fail(what);
+    }
+}
+
+static void run_output_mgmt(struct app *app, struct wl_display *d)
+{
+    if (!app->out_mgr) {
+        fail("wlr-output-management could not be bound");
+    }
+    wl_display_roundtrip(d);
+    int h1 = find_head(app, "HEADLESS-1"), h2 = find_head(app, "HEADLESS-2");
+    if (!app->heads[h1].enabled || !app->heads[h2].enabled || app->heads[h2].y != 720 ||
+        app->heads[h2].scale != 2.0) {
+        fail("the announced outputs do not match the config");
+    }
+
+    /* scale of the first output 1 -> 1.5 */
+    int seen = app->out_done;
+    struct zwlr_output_configuration_v1 *cfg = zwlr_output_manager_v1_create_configuration(app->out_mgr, app->out_serial);
+    zwlr_output_configuration_v1_add_listener(cfg, &out_cfg_listener, app);
+    struct zwlr_output_configuration_head_v1 *ch = zwlr_output_configuration_v1_enable_head(cfg, app->heads[h1].head);
+    zwlr_output_configuration_head_v1_set_scale(ch, wl_fixed_from_double(1.5));
+    ch = zwlr_output_configuration_v1_enable_head(cfg, app->heads[h2].head);
+    zwlr_output_configuration_head_v1_set_position(ch, 0, 720);
+    zwlr_output_configuration_head_v1_set_scale(ch, wl_fixed_from_double(2.0));
+    app->cfg_result = 0;
+    zwlr_output_configuration_v1_test(cfg);
+    wait_flag(d, &app->cfg_result, 2000);
+    if (app->cfg_result != 1) {
+        fail("test of a valid output configuration did not succeed");
+    }
+    app->cfg_result = 0;
+    zwlr_output_configuration_v1_apply(cfg);
+    wait_flag(d, &app->cfg_result, 2000);
+    if (app->cfg_result != 1) {
+        fail("a valid output configuration was not applied");
+    }
+    zwlr_output_configuration_v1_destroy(cfg);
+    wait_out_done(app, d, seen, "no new output state after the change");
+    h1 = find_head(app, "HEADLESS-1");
+    if (app->heads[h1].scale != 1.5) {
+        fail("scale of HEADLESS-1 was not changed to 1.5");
+    }
+
+    /* the second output off, then on again at its place */
+    seen = app->out_done;
+    cfg = zwlr_output_manager_v1_create_configuration(app->out_mgr, app->out_serial);
+    zwlr_output_configuration_v1_add_listener(cfg, &out_cfg_listener, app);
+    h1 = find_head(app, "HEADLESS-1");
+    h2 = find_head(app, "HEADLESS-2");
+    zwlr_output_configuration_v1_enable_head(cfg, app->heads[h1].head);
+    zwlr_output_configuration_v1_disable_head(cfg, app->heads[h2].head);
+    app->cfg_result = 0;
+    zwlr_output_configuration_v1_apply(cfg);
+    wait_flag(d, &app->cfg_result, 2000);
+    if (app->cfg_result != 1) {
+        fail("switching an output off failed");
+    }
+    zwlr_output_configuration_v1_destroy(cfg);
+    wait_out_done(app, d, seen, "no new output state after switching an output off");
+    if (app->heads[find_head(app, "HEADLESS-2")].enabled) {
+        fail("HEADLESS-2 is still announced as on");
+    }
+
+    seen = app->out_done;
+    cfg = zwlr_output_manager_v1_create_configuration(app->out_mgr, app->out_serial);
+    zwlr_output_configuration_v1_add_listener(cfg, &out_cfg_listener, app);
+    h1 = find_head(app, "HEADLESS-1");
+    h2 = find_head(app, "HEADLESS-2");
+    zwlr_output_configuration_v1_enable_head(cfg, app->heads[h1].head);
+    ch = zwlr_output_configuration_v1_enable_head(cfg, app->heads[h2].head);
+    zwlr_output_configuration_head_v1_set_position(ch, 1280, 0);
+    app->cfg_result = 0;
+    zwlr_output_configuration_v1_apply(cfg);
+    wait_flag(d, &app->cfg_result, 2000);
+    if (app->cfg_result != 1) {
+        fail("switching an output back on failed");
+    }
+    zwlr_output_configuration_v1_destroy(cfg);
+    wait_out_done(app, d, seen, "no new output state after switching an output on");
+    h2 = find_head(app, "HEADLESS-2");
+    if (!app->heads[h2].enabled || app->heads[h2].x != 1280 || app->heads[h2].y != 0) {
+        fail("HEADLESS-2 did not come back at 1280,0");
+    }
+
+    /* switching every output off is refused */
+    cfg = zwlr_output_manager_v1_create_configuration(app->out_mgr, app->out_serial);
+    zwlr_output_configuration_v1_add_listener(cfg, &out_cfg_listener, app);
+    zwlr_output_configuration_v1_disable_head(cfg, app->heads[find_head(app, "HEADLESS-1")].head);
+    zwlr_output_configuration_v1_disable_head(cfg, app->heads[h2].head);
+    app->cfg_result = 0;
+    zwlr_output_configuration_v1_apply(cfg);
+    wait_flag(d, &app->cfg_result, 2000);
+    if (app->cfg_result != -1) {
+        fail("a configuration that switches every output off was accepted");
+    }
+    zwlr_output_configuration_v1_destroy(cfg);
+    wl_display_roundtrip(d);
+}
+
 static void run_protocols(struct app *app, struct wl_display *d)
 {
     if (!app->fscale_mgr || !app->shape_mgr || !app->activation) {
@@ -2100,6 +2289,7 @@ static void run_protocols(struct app *app, struct wl_display *d)
     win_destroy(d, &b);
     run_constraints(app, d, &a);
     win_destroy(d, &a);
+    run_output_mgmt(app, d);
 }
 
 /* ----------------------------------------------------- scenario: session lock */
@@ -2416,6 +2606,7 @@ int main(int argc, char **argv)
         "xdg_activation_v1",
         "zwp_pointer_constraints_v1",
         "zwp_relative_pointer_manager_v1",
+        "zwlr_output_manager_v1",
     };
     for (size_t i = 0; i < sizeof required / sizeof *required; i++) {
         int found = 0;

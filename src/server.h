@@ -36,6 +36,7 @@
 #include <wlr/types/wlr_layer_shell_v1.h>
 #include <wlr/types/wlr_output.h>
 #include <wlr/types/wlr_output_layout.h>
+#include <wlr/types/wlr_output_management_v1.h>
 #include <wlr/types/wlr_pointer.h>
 #include <wlr/types/wlr_scene.h>
 #include <wlr/types/wlr_seat.h>
@@ -127,6 +128,8 @@ struct server {
     struct wl_listener active_constraint_destroy;
     double constraint_ox, constraint_oy; /* layout position of the constrained surface */
     struct wl_list keyboards;
+    struct wlr_output_manager_v1 *output_mgr;
+    struct wl_listener output_mgr_apply, output_mgr_test, layout_change;
     struct wl_list pointer_devs; /* libinput devices, see pointer_config.c */
     /* Virtual input (tests only, SFWC_ENABLE_VIRTUAL_INPUT=1): any client could
      * otherwise inject keystrokes. */
@@ -374,6 +377,12 @@ void cursor_frame(struct wl_listener *listener, void *data);
 /* layers.c */
 void focus_layer_surface(struct server *server, struct wlr_layer_surface_v1 *layer);
 void arrange_layers(struct output *output);
+void output_attach(struct output *output, bool has_pos, int x, int y);
+
+/* wlr-output-management (kanshi, wlr-randr): see output_mgmt.c */
+void output_mgmt_init(struct server *server);
+void output_mgmt_finish(struct server *server);
+void output_mgmt_publish(struct server *server);
 void server_new_layer_surface(struct wl_listener *listener, void *data);
 
 /* lock.c */

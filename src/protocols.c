@@ -167,6 +167,7 @@ void protocols_init(struct server *server)
     wl_signal_add(&server->xdg_activation->events.request_activate, &server->request_activate);
 
     constraints_init(server);
+    output_mgmt_init(server);
 }
 
 void protocols_finish(struct server *server)
@@ -174,4 +175,5 @@ void protocols_finish(struct server *server)
     wl_list_remove(&server->request_cursor_shape.link);
     wl_list_remove(&server->request_activate.link);
     constraints_finish(server);
+    output_mgmt_finish(server);
 }
