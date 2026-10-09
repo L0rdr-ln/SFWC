@@ -2084,6 +2084,7 @@ static void run_constraints(struct app *app, struct wl_display *d, struct win *a
     check_near(app->ptr_sy, before_y, 0.5, "locked pointer moved in y");
     zwp_locked_pointer_v1_destroy(lock);
     wl_display_roundtrip(d);
+    app->constraint_on = 0; /* destroying the object sends no "unlocked" */
     vptr_rel(app, d, 20, 0);
     check_near(app->ptr_sx, before_x + 20, 3, "pointer does not move again after the lock is gone");
 
