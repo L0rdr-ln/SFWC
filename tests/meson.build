@@ -88,7 +88,6 @@ if get_option('compositor')
   # only available when wlroots is built from the subproject; otherwise the input
   # part of the test is skipped.
   fs = import('fs')
-  wlr_protocol_dir = meson.project_source_root() / 'subprojects/wlroots/protocol'
   vkbd_xml = wlr_protocol_dir / 'virtual-keyboard-unstable-v1.xml'
   vptr_xml = wlr_protocol_dir / 'wlr-virtual-pointer-unstable-v1.xml'
   if fs.exists(vkbd_xml) and fs.exists(vptr_xml)

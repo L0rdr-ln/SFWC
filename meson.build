@@ -84,6 +84,14 @@ if get_option('compositor')
   wayland_server = dependency('wayland-server')
   libdrm = dependency('libdrm')
 
+  # The wlroots protocol XML files: in the wlroots subproject, which lives in our own subprojects
+  # directory or, when sfwc is itself a subproject of a plugin repository, in the top level one.
+  fs = import('fs')
+  wlr_protocol_dir = meson.project_source_root() / 'subprojects/wlroots/protocol'
+  if not fs.exists(wlr_protocol_dir) and fs.exists(meson.global_source_root() / 'subprojects/wlroots/protocol')
+    wlr_protocol_dir = meson.global_source_root() / 'subprojects/wlroots/protocol'
+  endif
+
   # wlroots headers include xdg-shell-protocol.h, which we generate ourselves.
   wayland_scanner = find_program('wayland-scanner', native: true)
   wayland_protos = dependency('wayland-protocols', version: '>=1.32', native: true)
@@ -96,7 +104,7 @@ if get_option('compositor')
   layer_shell_h = custom_target('wlr-layer-shell-unstable-v1-protocol.h',
     output: 'wlr-layer-shell-unstable-v1-protocol.h',
     command: [wayland_scanner, 'server-header',
-              meson.project_source_root() / 'subprojects/wlroots/protocol/wlr-layer-shell-unstable-v1.xml',
+              wlr_protocol_dir / 'wlr-layer-shell-unstable-v1.xml',
               '@OUTPUT@'])
 
   # wlr_session_lock_v1.h includes the server header of ext-session-lock.
