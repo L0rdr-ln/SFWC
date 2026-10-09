@@ -96,7 +96,7 @@ if get_option('compositor')
       input: p[0], output: p[1] + '-protocol.c',
       command: [wayland_scanner, 'private-code', '@INPUT@', '@OUTPUT@'])
   endforeach
-  client_deps = [wayland_client]
+  client_deps = [wayland_client, libm]
   client_args = ['-Wno-unused-parameter']
 
   # Virtual keyboard/pointer protocol files ship with the wlroots sources. They are
