@@ -1444,6 +1444,13 @@ static int red_of(const struct image *img, int x, int y)
     return (int)((img_px(img, x, y) >> 16) & 0xff);
 }
 
+/* New windows cascade: the n-th one (from 0) opens with its top-left at 48 + 32*n, wrapping
+ * after six. */
+static int cascade_at(int n)
+{
+    return 48 + (n * 32) % 192;
+}
+
 static void run_hypr(struct app *app, struct wl_display *d)
 {
     app->ext_w = app->out_w;
@@ -1519,7 +1526,9 @@ static void run_hypr(struct app *app, struct wl_display *d)
     win_destroy(d, &a);
     sleep_ms(2300);
 
-    /* slide: a new window comes in from the left edge (rule changed by a live reload) */
+    /* slide: a new window (the third one, so at cascade_at(2)) comes in from the left edge (rule
+     * changed by a live reload) */
+    int sp = cascade_at(2);
     write_config(cfg_path,
                  "[general]\ntheme = test\n[animations]\nbezier = lin, 0, 0, 1, 1\n"
                  "animation = windowsIn, 1, 20, lin, slide left\nanimation = windowsOut, 0\n"
@@ -1529,16 +1538,16 @@ static void run_hypr(struct app *app, struct wl_display *d)
     win_open_ex(app, d, &c, "slide", 0xff000000u | C_CLIENT, 0, 1);
     sleep_ms(500);
     img = capture_screen(app, d);
-    expect_px(&img, 30, 98, C_CLIENT, "slide left: the window is entering from the left edge");
-    expect_px(&img, 148, 98, 0x000000, "slide left: it has not reached its place yet");
+    expect_px(&img, 30, sp + 50, C_CLIENT, "slide left: the window is entering from the left edge");
+    expect_px(&img, sp + 36, sp + 50, 0x000000, "slide left: it has not reached its place yet");
     free(img.px);
     sleep_ms(2300);
     img = capture_screen(app, d);
-    expect_px(&img, 148, 98, C_CLIENT, "slide left: the window is in its place");
+    expect_px(&img, sp + 100, sp + 50, C_CLIENT, "slide left: the window is in its place");
     free(img.px);
     win_destroy(d, &c);
     img = capture_screen(app, d);
-    expect_px(&img, 148, 98, 0x000000, "windowsOut is off: the window vanishes at once");
+    expect_px(&img, sp + 100, sp + 50, 0x000000, "windowsOut is off: the window vanishes at once");
     free(img.px);
 
     /* border: when another window takes the focus the border color moves from the focused to the
@@ -1548,15 +1557,16 @@ static void run_hypr(struct app *app, struct wl_display *d)
                  "animation = windows, 0\nanimation = fade, 0\nanimation = border, 1, 20, lin\n");
     sleep_ms(600);
     struct win w1, w2;
+    int bp = cascade_at(3); /* the fourth window: its outer top-left corner */
     win_open_ex(app, d, &w1, "first", 0xff000000u | C_CLIENT, 1, 1);
     sleep_ms(300);
     img = capture_screen(app, d);
-    expect_px(&img, 148, 49, C_BORDER_F, "border: a new window starts with the focused color");
+    expect_px(&img, bp + 100, bp + 1, C_BORDER_F, "border: a new window starts with the focused color");
     free(img.px);
     win_open_ex(app, d, &w2, "second", 0xff000000u | C_CLIENT, 1, 1); /* takes the focus */
     sleep_ms(500);
     img = capture_screen(app, d);
-    int r = red_of(&img, 148, 49), b = blue_of(&img, 148, 49);
+    int r = red_of(&img, bp + 100, bp + 1), b = blue_of(&img, bp + 100, bp + 1);
     free(img.px);
     if (r < 0x30 || r > 0xe0 || b < 0x20 || b > 0xd0) {
         char msg[120];
@@ -1566,7 +1576,7 @@ static void run_hypr(struct app *app, struct wl_display *d)
     }
     sleep_ms(2300);
     img = capture_screen(app, d);
-    expect_px(&img, 148, 49, C_BORDER_U, "border: the color ended at the unfocused one");
+    expect_px(&img, bp + 100, bp + 1, C_BORDER_U, "border: the color ended at the unfocused one");
     free(img.px);
 
     win_destroy(d, &w2);
