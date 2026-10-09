@@ -247,6 +247,8 @@ void cursor_motion(struct wl_listener *listener, void *data)
     wlr_relative_pointer_manager_v1_send_relative_motion(server->relative_pointer_mgr, server->seat,
         (uint64_t)event->time_msec * 1000, event->delta_x, event->delta_y, event->unaccel_dx,
         event->unaccel_dy);
+    wlr_log(WLR_DEBUG, "pointer motion %.1f,%.1f (pointer focus: %s)", event->delta_x, event->delta_y,
+            server->seat->pointer_state.focused_client ? "a client" : "none");
     double dx = event->delta_x, dy = event->delta_y;
     if (server->cursor_mode == CURSOR_PASSTHROUGH && !constraints_limit(server, &dx, &dy)) {
         return;
