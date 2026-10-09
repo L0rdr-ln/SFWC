@@ -119,7 +119,9 @@ bool constraints_limit(struct server *server, double *dx, double *dy)
     double sy = server->cursor->y - server->constraint_oy;
     double cx, cy;
     if (!wlr_region_confine(&c->region, sx, sy, sx + *dx, sy + *dy, &cx, &cy)) {
-        return false;
+        /* the pointer is outside the region (it was there when the confinement began): let it
+         * come back in, but not wander elsewhere */
+        return pixman_region32_contains_point(&c->region, (int)(sx + *dx), (int)(sy + *dy), NULL);
     }
     *dx = cx - sx;
     *dy = cy - sy;
