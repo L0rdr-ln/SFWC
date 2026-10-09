@@ -122,6 +122,8 @@ if get_option('compositor')
       [pd / 'staging/fractional-scale/fractional-scale-v1.xml', 'fractional-scale-v1'],
       [pd / 'staging/cursor-shape/cursor-shape-v1.xml', 'cursor-shape-v1'],
       [pd / 'staging/xdg-activation/xdg-activation-v1.xml', 'xdg-activation-v1'],
+      [pd / 'unstable/pointer-constraints/pointer-constraints-unstable-v1.xml', 'pointer-constraints-unstable-v1'],
+      [pd / 'unstable/relative-pointer/relative-pointer-unstable-v1.xml', 'relative-pointer-unstable-v1'],
     ]
     proto_headers += custom_target(p[1] + '-protocol.h',
       input: p[0], output: p[1] + '-protocol.h',

@@ -86,6 +86,8 @@ if get_option('compositor')
       [pd / 'staging/cursor-shape/cursor-shape-v1.xml', 'cursor-shape-v1'],
       [pd / 'staging/xdg-activation/xdg-activation-v1.xml', 'xdg-activation-v1'],
       [pd / 'stable/tablet/tablet-v2.xml', 'tablet-v2'],
+      [pd / 'unstable/pointer-constraints/pointer-constraints-unstable-v1.xml', 'pointer-constraints-unstable-v1'],
+      [pd / 'unstable/relative-pointer/relative-pointer-unstable-v1.xml', 'relative-pointer-unstable-v1'],
     ]
     client_sources += custom_target(p[1] + '-client-protocol.h',
       input: p[0], output: p[1] + '-client-protocol.h',

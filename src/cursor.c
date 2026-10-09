@@ -229,6 +229,7 @@ void process_cursor_motion(struct server *server, uint32_t time)
             focus_toplevel_ex(toplevel, false); /* focus without raising */
         }
     }
+    constraints_focus(server, surface, server->cursor->x - sx, server->cursor->y - sy);
     if (surface) {
         wlr_seat_pointer_notify_enter(seat, surface, sx, sy);
         wlr_seat_pointer_notify_motion(seat, time, sx, sy);
@@ -242,7 +243,15 @@ void cursor_motion(struct wl_listener *listener, void *data)
     struct server *server = wl_container_of(listener, server, cursor_motion);
     struct wlr_pointer_motion_event *event = data;
     input_activity(server);
-    wlr_cursor_move(server->cursor, &event->pointer->base, event->delta_x, event->delta_y);
+    /* games read the raw movement, whatever the constraint does to the pointer */
+    wlr_relative_pointer_manager_v1_send_relative_motion(server->relative_pointer_mgr, server->seat,
+        (uint64_t)event->time_msec * 1000, event->delta_x, event->delta_y, event->unaccel_dx,
+        event->unaccel_dy);
+    double dx = event->delta_x, dy = event->delta_y;
+    if (server->cursor_mode == CURSOR_PASSTHROUGH && !constraints_limit(server, &dx, &dy)) {
+        return;
+    }
+    wlr_cursor_move(server->cursor, &event->pointer->base, dx, dy);
     process_cursor_motion(server, event->time_msec);
 }
 
@@ -251,7 +260,19 @@ void cursor_motion_absolute(struct wl_listener *listener, void *data)
     struct server *server = wl_container_of(listener, server, cursor_motion_absolute);
     struct wlr_pointer_motion_absolute_event *event = data;
     input_activity(server);
-    wlr_cursor_warp_absolute(server->cursor, &event->pointer->base, event->x, event->y);
+    if (server->cursor_mode == CURSOR_PASSTHROUGH && server->active_constraint) {
+        /* an absolute device (tablet, virtual pointer) obeys the constraint too */
+        double lx, ly;
+        wlr_cursor_absolute_to_layout_coords(server->cursor, &event->pointer->base, event->x, event->y,
+                                             &lx, &ly);
+        double dx = lx - server->cursor->x, dy = ly - server->cursor->y;
+        if (!constraints_limit(server, &dx, &dy)) {
+            return;
+        }
+        wlr_cursor_move(server->cursor, &event->pointer->base, dx, dy);
+    } else {
+        wlr_cursor_warp_absolute(server->cursor, &event->pointer->base, event->x, event->y);
+    }
     process_cursor_motion(server, event->time_msec);
 }
 

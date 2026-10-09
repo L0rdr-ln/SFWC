@@ -27,6 +27,8 @@
 #include "fractional-scale-v1-client-protocol.h"
 #include "cursor-shape-v1-client-protocol.h"
 #include "xdg-activation-v1-client-protocol.h"
+#include "pointer-constraints-unstable-v1-client-protocol.h"
+#include "relative-pointer-unstable-v1-client-protocol.h"
 #ifdef HAVE_VIRTUAL_INPUT
 #include <xkbcommon/xkbcommon.h>
 #include "virtual-keyboard-unstable-v1-client-protocol.h"
@@ -84,6 +86,11 @@ struct app {
     struct wp_fractional_scale_manager_v1 *fscale_mgr;
     struct wp_cursor_shape_manager_v1 *shape_mgr;
     struct xdg_activation_v1 *activation;
+    struct zwp_pointer_constraints_v1 *constraints;
+    struct zwp_relative_pointer_manager_v1 *rel_mgr;
+    int rel_events;
+    double rel_dx, rel_dy; /* sum of the relative motion received */
+    int constraint_on;     /* locked / confined events minus unlocked / unconfined */
     uint32_t kb_serial, ptr_serial; /* of the last enter */
     struct out_info outs[MAX_OUTS];
     int n_outs;
@@ -416,6 +423,10 @@ static void registry_global(void *data, struct wl_registry *reg, uint32_t name,
         app->shape_mgr = wl_registry_bind(reg, name, &wp_cursor_shape_manager_v1_interface, 1);
     } else if (strcmp(interface, xdg_activation_v1_interface.name) == 0) {
         app->activation = wl_registry_bind(reg, name, &xdg_activation_v1_interface, 1);
+    } else if (strcmp(interface, zwp_pointer_constraints_v1_interface.name) == 0) {
+        app->constraints = wl_registry_bind(reg, name, &zwp_pointer_constraints_v1_interface, 1);
+    } else if (strcmp(interface, zwp_relative_pointer_manager_v1_interface.name) == 0) {
+        app->rel_mgr = wl_registry_bind(reg, name, &zwp_relative_pointer_manager_v1_interface, 1);
     } else if (strcmp(interface, zxdg_output_manager_v1_interface.name) == 0) {
         app->xdg_out_mgr = wl_registry_bind(reg, name, &zxdg_output_manager_v1_interface, 2);
 #ifdef HAVE_VIRTUAL_INPUT
@@ -1941,6 +1952,98 @@ static void wait_pref(struct wl_display *d, struct win *w, int want, const char 
     }
 }
 
+
+static void rel_motion(void *data, struct zwp_relative_pointer_v1 *r, uint32_t hi, uint32_t lo,
+                       wl_fixed_t dx, wl_fixed_t dy, wl_fixed_t udx, wl_fixed_t udy)
+{
+    struct app *app = data;
+    app->rel_events++;
+    app->rel_dx += wl_fixed_to_double(dx);
+    app->rel_dy += wl_fixed_to_double(dy);
+}
+static const struct zwp_relative_pointer_v1_listener rel_listener = {.relative_motion = rel_motion};
+static void lp_locked(void *data, struct zwp_locked_pointer_v1 *l) { ((struct app *)data)->constraint_on++; }
+static void lp_unlocked(void *data, struct zwp_locked_pointer_v1 *l) { ((struct app *)data)->constraint_on--; }
+static const struct zwp_locked_pointer_v1_listener locked_listener = {.locked = lp_locked, .unlocked = lp_unlocked};
+static void cp_confined(void *data, struct zwp_confined_pointer_v1 *l) { ((struct app *)data)->constraint_on++; }
+static void cp_unconfined(void *data, struct zwp_confined_pointer_v1 *l) { ((struct app *)data)->constraint_on--; }
+static const struct zwp_confined_pointer_v1_listener confined_listener = {.confined = cp_confined, .unconfined = cp_unconfined};
+
+/* A relative move of the virtual pointer (what a mouse does), unlike vptr_move's absolute one. */
+static void vptr_rel(struct app *app, struct wl_display *d, double dx, double dy)
+{
+    zwlr_virtual_pointer_v1_motion(app->vptr, app->t += 10, wl_fixed_from_double(dx), wl_fixed_from_double(dy));
+    zwlr_virtual_pointer_v1_frame(app->vptr);
+    wl_display_roundtrip(d);
+}
+
+static void run_constraints(struct app *app, struct wl_display *d, struct win *a)
+{
+    if (!app->constraints || !app->rel_mgr) {
+        fail("pointer-constraints / relative-pointer could not be bound");
+    }
+    struct zwp_relative_pointer_v1 *rel = zwp_relative_pointer_manager_v1_get_relative_pointer(app->rel_mgr, app->pointer);
+    zwp_relative_pointer_v1_add_listener(rel, &rel_listener, app);
+
+    /* pointer in the window, free: both motion and relative motion arrive */
+    vptr_move(app, d, 48 + 100, 48 + 100);
+    vptr_rel(app, d, 10, 5);
+    check_near(app->rel_dx, 10, 0.5, "relative motion x (free pointer)");
+    check_near(app->ptr_sx, 110, 3, "surface x after a relative move");
+
+    /* locked: the pointer stays, the client still gets the relative motion */
+    struct zwp_locked_pointer_v1 *lock = zwp_pointer_constraints_v1_lock_pointer(
+        app->constraints, a->surface, app->pointer, NULL, ZWP_POINTER_CONSTRAINTS_V1_LIFETIME_PERSISTENT);
+    zwp_locked_pointer_v1_add_listener(lock, &locked_listener, app);
+    vptr_rel(app, d, 1, 1); /* the pointer has to move over the surface for the lock to start */
+    wl_display_roundtrip(d);
+    if (app->constraint_on != 1) {
+        fail("the pointer lock was not activated");
+    }
+    double before_x = app->ptr_sx, before_y = app->ptr_sy;
+    int ev = app->rel_events;
+    app->rel_dx = app->rel_dy = 0;
+    vptr_rel(app, d, 30, 40);
+    vptr_rel(app, d, 30, 40);
+    if (app->rel_events - ev != 2) {
+        fail("locked pointer: the relative motion events did not arrive");
+    }
+    check_near(app->rel_dx, 60, 0.5, "locked pointer: relative x");
+    check_near(app->rel_dy, 80, 0.5, "locked pointer: relative y");
+    check_near(app->ptr_sx, before_x, 0.5, "locked pointer moved in x");
+    check_near(app->ptr_sy, before_y, 0.5, "locked pointer moved in y");
+    zwp_locked_pointer_v1_destroy(lock);
+    wl_display_roundtrip(d);
+    vptr_rel(app, d, 20, 0);
+    check_near(app->ptr_sx, before_x + 20, 3, "pointer does not move again after the lock is gone");
+
+    /* confined to a 60x60 square at the top left of the window */
+    struct wl_region *region = wl_compositor_create_region(app->compositor);
+    wl_region_add(region, 0, 0, 60, 60);
+    struct zwp_confined_pointer_v1 *conf = zwp_pointer_constraints_v1_confine_pointer(
+        app->constraints, a->surface, app->pointer, region, ZWP_POINTER_CONSTRAINTS_V1_LIFETIME_PERSISTENT);
+    zwp_confined_pointer_v1_add_listener(conf, &confined_listener, app);
+    wl_region_destroy(region);
+    vptr_move(app, d, 48 + 30, 48 + 30);
+    wl_display_roundtrip(d);
+    if (app->constraint_on != 1) {
+        fail("the pointer confinement was not activated");
+    }
+    vptr_rel(app, d, 500, 500);
+    if (app->ptr_sx > 61 || app->ptr_sy > 61) {
+        char msg[120];
+        snprintf(msg, sizeof msg, "confined pointer left its region: %.1f,%.1f", app->ptr_sx, app->ptr_sy);
+        fail(msg);
+    }
+    vptr_rel(app, d, -500, -500);
+    if (app->ptr_sx < -1 || app->ptr_sy < -1) {
+        fail("confined pointer left its region at the top left");
+    }
+    zwp_confined_pointer_v1_destroy(conf);
+    zwp_relative_pointer_v1_destroy(rel);
+    wl_display_roundtrip(d);
+}
+
 static void run_protocols(struct app *app, struct wl_display *d)
 {
     if (!app->fscale_mgr || !app->shape_mgr || !app->activation) {
@@ -1995,6 +2098,7 @@ static void run_protocols(struct app *app, struct wl_display *d)
     xdg_activation_token_v1_destroy(tok);
 
     win_destroy(d, &b);
+    run_constraints(app, d, &a);
     win_destroy(d, &a);
 }
 
@@ -2310,6 +2414,8 @@ int main(int argc, char **argv)
         "wp_fractional_scale_manager_v1",
         "wp_cursor_shape_manager_v1",
         "xdg_activation_v1",
+        "zwp_pointer_constraints_v1",
+        "zwp_relative_pointer_manager_v1",
     };
     for (size_t i = 0; i < sizeof required / sizeof *required; i++) {
         int found = 0;

@@ -48,7 +48,9 @@
 #include <wlr/types/wlr_idle_inhibit_v1.h>
 #include <wlr/types/wlr_idle_notify_v1.h>
 #include <wlr/types/wlr_primary_selection.h>
+#include <wlr/types/wlr_pointer_constraints_v1.h>
 #include <wlr/types/wlr_primary_selection_v1.h>
+#include <wlr/types/wlr_relative_pointer_v1.h>
 #include <wlr/types/wlr_screencopy_v1.h>
 #include <wlr/types/wlr_session_lock_v1.h>
 #include <wlr/types/wlr_xcursor_manager.h>
@@ -118,6 +120,12 @@ struct server {
     struct wl_listener request_cursor_shape;
     struct wlr_xdg_activation_v1 *xdg_activation;
     struct wl_listener request_activate;
+    struct wlr_pointer_constraints_v1 *pointer_constraints;
+    struct wlr_relative_pointer_manager_v1 *relative_pointer_mgr;
+    struct wl_listener new_constraint;
+    struct wlr_pointer_constraint_v1 *active_constraint; /* of the surface under the pointer */
+    struct wl_listener active_constraint_destroy;
+    double constraint_ox, constraint_oy; /* layout position of the constrained surface */
     struct wl_list keyboards;
     /* Virtual input (tests only, SFWC_ENABLE_VIRTUAL_INPUT=1): any client could
      * otherwise inject keystrokes. */
@@ -290,6 +298,12 @@ void plugins_finish(struct server *server);
 /* protocols.c */
 void protocols_init(struct server *server);
 void protocols_finish(struct server *server);
+void constraints_init(struct server *server);
+void constraints_finish(struct server *server);
+/* Called with the surface under the pointer (NULL if none) and its origin in layout coordinates. */
+void constraints_focus(struct server *server, struct wlr_surface *surface, double origin_x, double origin_y);
+/* Limit a relative motion by the active constraint; returns false if the pointer must not move. */
+bool constraints_limit(struct server *server, double *dx, double *dy);
 
 /* window.c */
 struct wlr_box toplevel_geometry(struct toplevel *t);
