@@ -17,6 +17,10 @@ src/layers.c       wlr-layer-shell: panels, wallpapers, launchers, exclusive zon
 src/input.c        seat, keyboards (xkb, repeat), virtual input (tests), selection requests
 src/actions.c      what a keybind does (dispatch_action)
 src/cursor.c       pointer: hit testing, focus, drag to move/resize, buttons, snapping
+src/protocols.c    small protocols: viewporter, fractional-scale, cursor-shape, xdg-activation,
+                   pointer constraints + relative pointer
+src/output_mgmt.c  wlr-output-management (kanshi, wlr-randr)
+src/pointer_config.c  libinput settings from [input]
 src/lock.c         ext-session-lock
 src/foreign.c      wlr-foreign-toplevel-management (taskbars)
 src/idle.c         idle inhibit
@@ -51,7 +55,8 @@ Companion tools only work if the matching protocols exist. Implemented: `xdg-she
 `xdg-decoration`, `xdg-output`, `wlr-layer-shell` (bar, wallpaper, launcher), `ext-session-lock`
 (lock screen), `ext-idle-notify` and idle inhibit (idle daemon),
 `wlr-foreign-toplevel-management` (taskbar), `wlr-screencopy` (screenshots), primary selection
-and `wlr-data-control` (clipboard managers). Not yet: a workspace protocol (`ext-workspace`,
+and `wlr-data-control` (clipboard managers), `viewporter`, `fractional-scale-v1`, `cursor-shape-v1`,
+`xdg-activation-v1`, `pointer-constraints` + `relative-pointer`, `wlr-output-management`. Not yet: a workspace protocol (`ext-workspace`,
 which wlroots 0.20 now provides), `ext-image-copy-capture` (wlroots 0.19+), Xwayland.
 
 ## Libraries beyond wlroots

@@ -48,6 +48,8 @@ save it.
   style **fire**, **squeeze** and **zoom** effects. Not installed, the compositor stays minimal.
 - **Workspaces** (1–9), **layer-shell** bars/wallpapers/launchers (waybar, swaybg, fuzzel, ...),
   **screen lock** (swaylock), idle (swayidle), taskbars, clipboard managers, screenshots (grim).
+- **Desktop protocols**: fractional scaling, cursor shape, activation, pointer lock/confine (games),
+  output management (kanshi, wlr-randr), and **libinput settings** (tap, natural scroll, ...) in the config.
 - **Simple configuration** – one INI-style file, sensible defaults, mistakes are reported with
   their line number and never stop the compositor. No scripting language.
 - **Plugins** – effects and extras live in plugins (`[plugins] load = wobbly`) from the
@@ -79,7 +81,7 @@ Dependencies (Debian/Ubuntu names; check your distribution):
 | | Packages |
 |---|---|
 | tools | `meson ninja-build pkg-config gcc git` (meson ≥ 1.4 when wlroots is built from the wrap) |
-| libraries | `libwayland-dev wayland-protocols libxkbcommon-dev libcairo2-dev libpango1.0-dev libfontconfig-dev libpixman-1-dev libdrm-dev` |
+| libraries | `libwayland-dev wayland-protocols libxkbcommon-dev libcairo2-dev libpango1.0-dev libfontconfig-dev libpixman-1-dev libdrm-dev libinput-dev` |
 | wlroots 0.20 | `libwlroots-0.20-dev` if your distribution has it, otherwise meson builds it from `subprojects/wlroots.wrap`, together with the newer wayland (≥ 1.24) and xkbcommon (≥ 1.8) it needs, and libdrm/pixman if yours are too old (needs network, `bison flex`, and `libinput-dev libudev-dev libseat-dev libegl-dev libgles-dev libgbm-dev libvulkan-dev glslang-tools hwdata libdisplay-info-dev libliftoff-dev` plus the xcb development packages, see [the CI setup](.github/workflows/build.yml)) |
 
 ```sh

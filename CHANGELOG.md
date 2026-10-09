@@ -6,6 +6,21 @@ Versions follow the roadmap milestones while the project is pre-1.0:
 ## Unreleased
 
 ### Added
+- Desktop protocols programs expect: `viewporter` and `fractional-scale` (sharp HiDPI: clients get
+  the scale of the output they are on, 1.5 and so on), `cursor-shape` (named cursors from the
+  compositor's theme), `xdg-activation` (a program can ask for a window to be focused, with a
+  token; a window on another workspace is not pulled over), `pointer-constraints` and
+  `relative-pointer` (locked and confined pointers for games and 3D programs) and
+  `wlr-output-management` (kanshi, wlr-randr and wdisplays can switch outputs on and off and
+  change scale, mode, rotation and position; windows leave an output that goes dark; the last
+  output cannot be switched off).
+- `[input]` and `[input:touchpad]` config sections: libinput settings of mice and touchpads (tap,
+  tap-and-drag, natural scrolling, disable while typing, middle emulation, left handed,
+  acceleration speed and profile, click, scroll and tap button map), applied when a device
+  appears and on every reload.
+- Tests: a `protocols` scenario (per-output preferred scale, cursor shape, activation with real
+  and made up tokens, pointer lock and confinement with relative motion, output management:
+  scale change, off, on, refusal of an all-off configuration) and parser tests for `[input]`.
 - Plugin API (`include/sfwc-plugin.h`, docs/PLUGINS.md; the Hyprland and Wayfire style animations
   and wobbly windows are plugins in the sfwc-plugins repository): `[plugins] load = NAME` loads
   `NAME.so` from `$SFWC_PLUGIN_PATH`, the user's data directory or the install directory;

@@ -121,11 +121,10 @@ are roughly in build order; check them off as they land.
 - [ ] A plugin sandbox is **not** planned: plugins run with the compositor's rights (documented)
 
 ## Later / ideas
-- Missing protocols people expect from a desktop: `cursor-shape`, `fractional-scale`,
-  `viewporter`, `xdg-activation`, `pointer-constraints` and `relative-pointer` (games),
-  `wlr-output-management` (kanshi, wlr-randr), `wlr-gamma-control` (night light),
-  `output-power-management`, `ext-workspace`
-- libinput settings (tap to click, natural scrolling, pointer acceleration) in the config
+- Done: `cursor-shape`, `fractional-scale`, `viewporter`, `xdg-activation`, `pointer-constraints`,
+  `relative-pointer`, `wlr-output-management` and the libinput settings (`[input]`)
+- Still missing protocols: `wlr-gamma-control` (night light), `output-power-management`,
+  `ext-workspace`, `ext-image-copy-capture`, tablet support, a cursor hint for locked pointers
 - Window rules (per application: floating geometry, workspace, opacity), perhaps as a plugin
 - IPC socket and a small control CLI (`sfwcctl`)
 - Portals (screen sharing, file chooser) with xdg-desktop-portal-wlr: document the setup
