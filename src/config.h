@@ -64,6 +64,9 @@ enum anim_style {
     ANIM_STYLE_SLIDEFADE,     /* slide by `percent` of the size while fading */
     ANIM_STYLE_SLIDEFADEVERT, /* workspaces: slidefade up/down */
     ANIM_STYLE_FADE,
+    ANIM_STYLE_ZOOM,    /* popin that also fades */
+    ANIM_STYLE_SQUEEZE, /* collapse to a line, then to nothing, like a switched off TV */
+    ANIM_STYLE_FIRE,    /* burn away from the bottom, with flames */
 };
 
 enum anim_dir { ANIM_DIR_AUTO, ANIM_DIR_LEFT, ANIM_DIR_RIGHT, ANIM_DIR_TOP, ANIM_DIR_BOTTOM };
@@ -136,6 +139,10 @@ struct config {
     int n_curves;
     struct anim_rule anim[ANIMT_COUNT];
     struct anim_rule anim_global; /* `animation = global, ...`: default for types without a rule */
+    /* the `fire` style */
+    int fire_particles; /* at most this many flames at a time */
+    int fire_size;      /* radius of a flame in px */
+    uint32_t fire_color; /* 0xRRGGBB, the main color of the flames */
     /* [keybinds] [mouse] [autostart] */
     struct keybind *binds;
     size_t n_binds;

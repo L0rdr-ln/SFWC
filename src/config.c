@@ -145,6 +145,9 @@ void config_init_defaults(struct config *c)
     strcpy(c->anim_easing, "ease-out");
     c->anim_move = c->anim_resize = true;
     c->anim_duration_ms = 180;
+    c->fire_particles = 400;
+    c->fire_size = 14;
+    c->fire_color = 0xff7a18;
 
     install_default_keybinds(c);
     install_default_mousebinds(c);
@@ -670,7 +673,8 @@ static bool style_allowed(enum anim_type t, enum anim_style s)
     switch (t) {
     case ANIMT_WINDOWS_IN:
     case ANIMT_WINDOWS_OUT:
-        return s == ANIM_STYLE_POPIN || s == ANIM_STYLE_SLIDE || s == ANIM_STYLE_SLIDEFADE;
+        return s == ANIM_STYLE_POPIN || s == ANIM_STYLE_SLIDE || s == ANIM_STYLE_SLIDEFADE ||
+               s == ANIM_STYLE_ZOOM || s == ANIM_STYLE_SQUEEZE || s == ANIM_STYLE_FIRE;
     case ANIMT_WORKSPACES:
         return s == ANIM_STYLE_SLIDE || s == ANIM_STYLE_SLIDEVERT || s == ANIM_STYLE_SLIDEFADE ||
                s == ANIM_STYLE_SLIDEFADEVERT || s == ANIM_STYLE_FADE;
@@ -693,7 +697,10 @@ static bool parse_style(const char *text, enum anim_style *style, int *percent, 
                   {"slidevert", ANIM_STYLE_SLIDEVERT},
                   {"slidefade", ANIM_STYLE_SLIDEFADE},
                   {"slidefadevert", ANIM_STYLE_SLIDEFADEVERT},
-                  {"fade", ANIM_STYLE_FADE}};
+                  {"fade", ANIM_STYLE_FADE},
+                  {"zoom", ANIM_STYLE_ZOOM},
+                  {"squeeze", ANIM_STYLE_SQUEEZE},
+                  {"fire", ANIM_STYLE_FIRE}};
     char buf[64];
     snprintf(buf, sizeof buf, "%s", text);
     char *save = NULL, *word = strtok_r(buf, " \t", &save), *arg = strtok_r(NULL, " \t", &save);
@@ -724,7 +731,9 @@ static bool parse_style(const char *text, enum anim_style *style, int *percent, 
             return false;
         }
         *percent = (int)(pct + 0.5);
-        return *style != ANIM_STYLE_SLIDE;
+        /* squeeze and fire take no argument; whether a slide takes a percent or a direction
+         * depends on the type and is checked by the caller */
+        return *style != ANIM_STYLE_SQUEEZE && *style != ANIM_STYLE_FIRE && *style != ANIM_STYLE_FADE;
     }
     if (*style != ANIM_STYLE_SLIDE) {
         return false;
@@ -876,6 +885,13 @@ static void handle_animation_rule(struct loader *l, const char *value)
             return;
         }
         r.style = style;
+        /* windows slide towards an edge (a direction), workspaces slide a part of the screen (a percent) */
+        bool windows = types[0] == ANIMT_WINDOWS_IN || types[0] == ANIMT_WINDOWS_OUT;
+        if (style == ANIM_STYLE_SLIDE && ((windows && r.percent) || (!windows && r.dir != ANIM_DIR_AUTO))) {
+            report(l, CONFIG_ERROR, "animation %s: bad style '%s' (%s)", name, fields[4],
+                   windows ? "slide takes left, right, top or bottom" : "slide takes a percentage");
+            return;
+        }
     }
     if (global) {
         c->anim_global = r;
@@ -962,6 +978,19 @@ static void handle_animations(struct loader *l, const char *key, const char *v)
         handle_animation_rule(l, v);
     } else if (!strcmp(key, "preset")) {
         apply_preset(l, v);
+    } else if (!strcmp(key, "fire_particles")) {
+        set_int(l, key, v, 20, 2000, &c->fire_particles);
+    } else if (!strcmp(key, "fire_size")) {
+        set_int(l, key, v, 4, 60, &c->fire_size);
+    } else if (!strcmp(key, "fire_color")) {
+        const char *h = v + (*v == '#');
+        char *end;
+        unsigned long rgb = strtoul(h, &end, 16);
+        if (strlen(h) != 6 || *end) {
+            report(l, CONFIG_ERROR, "fire_color: '%s' is not a color (use #rrggbb)", v);
+        } else {
+            c->fire_color = (uint32_t)rgb;
+        }
     } else {
         report(l, CONFIG_WARNING, "unknown key '%s' in [animations]", key);
     }

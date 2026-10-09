@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Starts sfwc on the headless backend, runs the test client against it and checks the
 # compositor's log and side effects.
-# Usage: run_client_test.sh <sfwc> <client_test> [single|multi|nested|deco|anim|layers|workspaces|lock|hypr]
+# Usage: run_client_test.sh <sfwc> <client_test> [single|multi|nested|deco|anim|layers|workspaces|lock|hypr|fx]
 #   single: one output, input, snapping, live config reload, autostart, terminal
 #   multi:  two outputs (different size/scale/position), follow-mouse, output actions,
 #           reload-config key (config file watching is switched off)
@@ -50,6 +50,18 @@ CONF
     ;;
 layers|workspaces|lock)
     : >"$SFWC_CONFIG"
+    ;;
+fx)
+    # Wayfire style effects (squeeze, fire, zoom) with slow linear curves (2 s)
+    unset SFWC_NO_ANIMATIONS
+    cat >"$SFWC_CONFIG" <<'CONF'
+[animations]
+bezier = lin, 0, 0, 1, 1
+animation = windowsIn, 1, 20, lin, squeeze
+animation = windowsOut, 1, 20, lin, squeeze
+animation = fade, 0
+animation = border, 0
+CONF
     ;;
 hypr)
     # Hyprland style rules with slow linear curves (2 s) so that the checks are not timing sensitive.
@@ -236,6 +248,9 @@ workspaces)
 layers)
     grep -q "layer surface mapped: namespace=bar" "$LOG" || fail "the panel was never mapped"
     grep -q "layer surface unmapped: namespace=launcher" "$LOG" || fail "the launcher was never unmapped"
+    ;;
+fx)
+    grep -q "window unmapped" "$LOG" || fail "no window was ever closed"
     ;;
 hypr)
     grep -q "workspace 2" "$LOG" || fail "the compositor never switched workspace"

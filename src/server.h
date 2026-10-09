@@ -63,6 +63,7 @@
 
 #include "config.h"
 #include "anim.h"
+#include "fx_fire.h"
 #include "deco.h"
 #include "template.h"
 #include "theme.h"
@@ -287,6 +288,9 @@ struct scale_rec {
     int sx, sy;         /* position inside the animated tree */
     int w, h;           /* size on screen */
     int dst_w, dst_h;   /* what the buffer's dest size was (0 = not set) */
+    struct wlr_fbox src; /* its source box, if it had one */
+    bool had_src;
+    bool was_enabled;
 };
 
 struct animation {
@@ -305,6 +309,16 @@ struct animation {
     struct wl_list scale_recs; /* struct scale_rec */
     bool centered;
     double cx, cy;
+    bool scaled;       /* popin / zoom: scale from_scale -> to_scale */
+    /* Wayfire style effects (fx is ANIM_STYLE_SQUEEZE or ANIM_STYLE_FIRE, else ANIM_STYLE_DEFAULT) */
+    struct server *server;
+    enum anim_style fx;
+    bool fx_closing;
+    double bx0, by0, bx1, by1; /* the area of the animated tree, in layout coordinates */
+    struct fire_sim *fire;
+    struct wlr_scene_buffer *fire_buf;
+    int fire_ox, fire_oy, fire_w, fire_h; /* the area the flames are drawn into */
+    uint32_t last_ms;
 };
 #define MAX_OUTPUTS 16
 
@@ -352,6 +366,8 @@ void move_to_workspace(struct toplevel *t, int ws);
 void workspace_clamp(struct server *server);
 
 /* decoration.c */
+void scene_buffer_set_cairo(struct wlr_scene_buffer *node, cairo_surface_t *surface);
+bool scene_buffer_no_input(struct wlr_scene_buffer *buffer, double *sx, double *sy);
 struct deco_insets toplevel_insets(struct toplevel *t);
 struct wlr_box toplevel_outer(struct toplevel *t);
 void frame_refresh(struct toplevel *t);

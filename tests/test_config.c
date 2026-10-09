@@ -419,6 +419,43 @@ static void test_animation_rules(void)
     CHECK(config_anim_rule(&c, ANIMT_WINDOWS_IN, &r) && r.percent == 95);
     config_finish(&c);
 
+    /* Wayfire style effects, and which style takes which argument */
+    config_init_defaults(&c);
+    CHECK(c.fire_particles == 400 && c.fire_size == 14 && c.fire_color == 0xff7a18);
+    memset(&l, 0, sizeof l);
+    text = "[animations]\n"
+           "animation = windowsOut, 1, 6, ease, fire\n"            /* 2 */
+           "animation = windowsIn, 1, 4, ease, squeeze\n"          /* 3 */
+           "animation = windowsMove, 1, 3, ease\n"                 /* 4 */
+           "animation = windowsOut, 1, 6, ease, fire 50%\n"        /* 5 fire takes no argument */
+           "animation = windowsIn, 1, 6, ease, squeeze left\n"     /* 6 squeeze takes none either */
+           "animation = windowsIn, 1, 6, ease, zoom 70%\n"         /* 7 ok */
+           "animation = windowsIn, 1, 6, ease, slide 50%\n"        /* 8 a window slide has a direction */
+           "animation = workspaces, 1, 6, ease, slide 50%\n"       /* 9 a workspace slide a percentage */
+           "animation = workspaces, 1, 6, ease, slide left\n"      /* 10 not a direction */
+           "animation = border, 1, 6, ease, fire\n"                /* 11 not for borders */
+           "fire_particles = 900\nfire_size = 20\nfire_color = #3060ff\n"
+           "fire_particles = 5\nfire_size = 500\nfire_color = red\n"; /* 15-17 out of range / bad */
+    CHECK(config_load_string(&c, text, collect, &l));
+    CHECK(has_msg(&l, CONFIG_ERROR, 5, "bad style"));
+    CHECK(has_msg(&l, CONFIG_ERROR, 6, "bad style"));
+    CHECK(has_msg(&l, CONFIG_ERROR, 8, "left, right"));
+    CHECK(has_msg(&l, CONFIG_ERROR, 10, "percentage"));
+    CHECK(has_msg(&l, CONFIG_ERROR, 11, "does not apply"));
+    CHECK(has_msg(&l, CONFIG_ERROR, 15, "between"));
+    CHECK(has_msg(&l, CONFIG_ERROR, 16, "between"));
+    CHECK(has_msg(&l, CONFIG_ERROR, 17, "#rrggbb"));
+    CHECK(l.n == 8);
+    CHECK(c.fire_particles == 900 && c.fire_size == 20 && c.fire_color == 0x3060ff); /* bad ones changed nothing */
+    CHECK(config_anim_rule(&c, ANIMT_WINDOWS_OUT, &r) && r.style == ANIM_STYLE_FIRE && r.speed == 6);
+    CHECK(config_anim_rule(&c, ANIMT_WORKSPACES, &r) && r.style == ANIM_STYLE_SLIDE && r.percent == 50);
+    config_finish(&c);
+    config_init_defaults(&c);
+    CHECK(config_load_string(&c, "[animations]\nanimation = windowsIn, 1, 6, ease, zoom 70%\nanimation = windowsOut, 1, 6, ease, squeeze\n", NULL, NULL));
+    CHECK(config_anim_rule(&c, ANIMT_WINDOWS_IN, &r) && r.style == ANIM_STYLE_ZOOM && r.percent == 70);
+    CHECK(config_anim_rule(&c, ANIMT_WINDOWS_OUT, &r) && r.style == ANIM_STYLE_SQUEEZE);
+    config_finish(&c);
+
     /* the legacy keys still work next to the new ones */
     config_init_defaults(&c);
     CHECK(config_load_string(&c, "[animations]\nopen = slide\nduration_ms = 400\nanimation = border, 1, 5, ease\n", NULL, NULL));

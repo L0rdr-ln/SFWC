@@ -1583,6 +1583,146 @@ static void run_hypr(struct app *app, struct wl_display *d)
     win_destroy(d, &w1);
 }
 
+/* ------------------------------------------- scenario: Wayfire style effects */
+
+/* number of flame colored pixels (orange / yellow: red clearly above blue) in a rectangle */
+static int count_fiery(const struct image *img, int x0, int y0, int x1, int y1)
+{
+    int n = 0;
+    for (int y = y0; y < y1; y++) {
+        for (int x = x0; x < x1; x++) {
+            uint32_t c = img_px(img, x, y);
+            int r = (c >> 16) & 0xff, b = c & 0xff;
+            n += r >= 150 && r > b + 50;
+        }
+    }
+    return n;
+}
+
+static void fx_config(const char *path, const char *in_rule, const char *out_rule)
+{
+    char text[400];
+    snprintf(text, sizeof text,
+             "[animations]\nbezier = lin, 0, 0, 1, 1\nanimation = windowsIn, %s\n"
+             "animation = windowsOut, %s\nanimation = fade, 0\nanimation = border, 0\n",
+             in_rule, out_rule);
+    write_config(path, text);
+    sleep_ms(600);
+}
+
+static void run_fx(struct app *app, struct wl_display *d)
+{
+    app->ext_w = app->out_w;
+    app->ext_h = app->out_h;
+    setup_virtual_devices(app, d, 0);
+    const char *cfg_path = getenv("SFWC_CONFIG");
+    if (!cfg_path) {
+        fail("SFWC_CONFIG is not set (run through tests/run_client_test.sh)");
+    }
+
+    /* squeeze: the window opens as a line and unfolds: first the width, then the height. 1.2 s
+     * into 2 s it is full width and about half the height. */
+    int p = cascade_at(0);
+    struct win a;
+    win_open_ex(app, d, &a, "squeeze", 0xff000000u | C_CLIENT, 0, 1);
+    wait_for(d, &app->kb_enter, 3000, "keyboard focus for the window");
+    sleep_ms(1200);
+    struct image img = capture_screen(app, d);
+    expect_px(&img, p + 100, p + 50, C_CLIENT, "squeeze in: the middle of the window is there");
+    expect_px(&img, p + 4, p + 50, C_CLIENT, "squeeze in: it already has its full width");
+    expect_px(&img, p + 100, p + 8, 0x000000, "squeeze in: but not its full height yet");
+    free(img.px);
+    sleep_ms(1500);
+    img = capture_screen(app, d);
+    expect_px(&img, p + 100, p + 8, C_CLIENT, "squeeze in: the window is complete afterwards");
+    expect_px(&img, p + 4, p + 4, C_CLIENT, "squeeze in: ... in the corner too");
+    free(img.px);
+    win_destroy(d, &a);
+    sleep_ms(1200);
+    img = capture_screen(app, d);
+    expect_px(&img, p + 100, p + 50, C_CLIENT, "squeeze out: the middle of the picture is still there");
+    expect_px(&img, p + 100, p + 8, 0x000000, "squeeze out: the height is collapsing");
+    free(img.px);
+    sleep_ms(1500);
+    img = capture_screen(app, d);
+    expect_px(&img, p + 100, p + 50, 0x000000, "squeeze out: gone afterwards");
+    free(img.px);
+
+    /* fire, closing: the window burns away from the bottom; flames sit along the burn line */
+    fx_config(cfg_path, "0", "1, 20, lin, fire");
+    p = cascade_at(1);
+    struct win b;
+    win_open_ex(app, d, &b, "burn", 0xff000000u | C_CLIENT, 0, 1);
+    sleep_ms(400);
+    win_destroy(d, &b);
+    sleep_ms(800);
+    img = capture_screen(app, d);
+    expect_px(&img, p + 100, p + 20, C_CLIENT, "fire out: the top of the window has not burnt yet");
+    expect_not_px(&img, p + 100, p + 85, C_CLIENT, "fire out: the bottom of the window has burnt away");
+    int flames = count_fiery(&img, p - 30, p + 10, p + 230, p + 110);
+    if (flames < 15) {
+        char msg[100];
+        snprintf(msg, sizeof msg, "fire out: only %d flame colored pixels around the burn line", flames);
+        fail(msg);
+    }
+    free(img.px);
+    sleep_ms(2000);
+    img = capture_screen(app, d);
+    expect_px(&img, p + 100, p + 20, 0x000000, "fire out: the window is gone afterwards");
+    if (count_fiery(&img, 0, 0, 1280, 720) != 0) {
+        fail("fire out: flames are still there after the animation");
+    }
+    free(img.px);
+
+    /* fire, opening: the window is revealed from the top, the flames on its edge */
+    fx_config(cfg_path, "1, 20, lin, fire", "0");
+    p = cascade_at(2);
+    struct win c;
+    win_open_ex(app, d, &c, "unburn", 0xff000000u | C_CLIENT, 0, 1);
+    sleep_ms(800);
+    img = capture_screen(app, d);
+    expect_px(&img, p + 100, p + 20, C_CLIENT, "fire in: the top of the window is already there");
+    expect_not_px(&img, p + 100, p + 85, C_CLIENT, "fire in: the bottom is not there yet");
+    flames = count_fiery(&img, p - 30, p + 10, p + 230, p + 110);
+    if (flames < 15) {
+        char msg[100];
+        snprintf(msg, sizeof msg, "fire in: only %d flame colored pixels around the edge", flames);
+        fail(msg);
+    }
+    free(img.px);
+    sleep_ms(2000);
+    img = capture_screen(app, d);
+    expect_px(&img, p + 100, p + 85, C_CLIENT, "fire in: the whole window is there afterwards");
+    expect_px(&img, p + 4, p + 96, C_CLIENT, "fire in: ... down to the corner");
+    if (count_fiery(&img, 0, 0, 1280, 720) != 0) {
+        fail("fire in: flames are still there after the animation");
+    }
+    free(img.px);
+    win_destroy(d, &c);
+
+    /* zoom: a smaller, translucent window that grows */
+    fx_config(cfg_path, "1, 20, lin, zoom 50%", "0");
+    p = cascade_at(3);
+    struct win dd;
+    win_open_ex(app, d, &dd, "zoom", 0xff000000u | C_CLIENT, 0, 1);
+    sleep_ms(500);
+    img = capture_screen(app, d);
+    int b_mid = blue_of(&img, p + 100, p + 50);
+    expect_px(&img, p + 3, p + 50, 0x000000, "zoom: the window is still smaller than its full size");
+    free(img.px);
+    if (b_mid < 1 || b_mid > 0xb0) {
+        char msg[100];
+        snprintf(msg, sizeof msg, "zoom: blue is 0x%02x half a second in, expected a partly faded window", b_mid);
+        fail(msg);
+    }
+    sleep_ms(2300);
+    img = capture_screen(app, d);
+    expect_px(&img, p + 100, p + 50, C_CLIENT, "zoom: fully visible afterwards");
+    expect_px(&img, p + 3, p + 50, C_CLIENT, "zoom: with its full size");
+    free(img.px);
+    win_destroy(d, &dd);
+}
+
 /* -------------------------------------------------- scenario: workspaces */
 
 #define C_OTHER 0xc03050
@@ -1944,8 +2084,9 @@ int main(int argc, char **argv)
     int workspaces = !strcmp(mode, "workspaces");
     int lock = !strcmp(mode, "lock");
     int hypr = !strcmp(mode, "hypr");
-    if (!multi && !deco && !anim && !layers && !workspaces && !lock && !hypr && strcmp(mode, "single") != 0) {
-        fail("unknown mode (use single, multi, deco, anim, layers, workspaces, lock or hypr)");
+    int fx = !strcmp(mode, "fx");
+    if (!multi && !deco && !anim && !layers && !workspaces && !lock && !hypr && !fx && strcmp(mode, "single") != 0) {
+        fail("unknown mode (use single, multi, deco, anim, layers, workspaces, lock, hypr or fx)");
     }
 
     struct app app = {0};
@@ -2002,6 +2143,16 @@ int main(int argc, char **argv)
 #endif
     }
 
+    if (fx) {
+#ifdef HAVE_VIRTUAL_INPUT
+        run_fx(&app, display);
+        wl_display_disconnect(display);
+        printf("client_test fx: OK\n");
+        return 0;
+#else
+        fail("the fx scenario needs the wlroots protocol files");
+#endif
+    }
     if (hypr) {
 #ifdef HAVE_VIRTUAL_INPUT
         run_hypr(&app, display);

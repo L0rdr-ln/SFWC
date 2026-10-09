@@ -10,6 +10,10 @@
  * animated tree around the tree's center (dest size and position), re-applied before every frame
  * because the client may reset it with a commit.
  *
+ * Wayfire style effects on top of that: `fire` crops the window's buffers along a burn line that
+ * climbs from the bottom while a particle simulation (fx_fire.c) draws flames along the line into
+ * an overlay; `squeeze` scales the two axes separately, like a switched off TV.
+ *
  * Without `animation = ...` rules the old keys (open, close, move, duration_ms, easing) apply.
  */
 #include "server.h"
@@ -182,43 +186,141 @@ static void scale_collect_iter(struct wlr_scene_buffer *sb, int sx, int sy, void
     rec->h = h;
     rec->dst_w = sb->dst_width;
     rec->dst_h = sb->dst_height;
+    rec->had_src = sb->src_box.width > 0 && sb->src_box.height > 0;
+    rec->src = sb->src_box;
+    rec->was_enabled = sb->node.enabled;
     rec->destroy.notify = scale_rec_destroy;
     wl_signal_add(&sb->node.events.destroy, &rec->destroy);
     wl_list_insert(&a->scale_recs, &rec->link);
 }
 
-/* Scale every buffer of the tree by `s` around the center of the tree (s == 1 restores). */
-static void scale_apply(struct animation *a, double s)
+/* Find the buffers of the animated tree (new ones that appeared are added) and, the first time,
+ * the area they cover. False while there is nothing yet. */
+static bool recs_prepare(struct animation *a)
 {
     wlr_scene_node_for_each_buffer(&a->tree->node, scale_collect_iter, a);
-    struct scale_rec *rec;
-    if (!a->centered) {
-        int x0 = INT32_MAX, y0 = INT32_MAX, x1 = INT32_MIN, y1 = INT32_MIN;
-        wl_list_for_each(rec, &a->scale_recs, link) {
-            x0 = rec->sx < x0 ? rec->sx : x0;
-            y0 = rec->sy < y0 ? rec->sy : y0;
-            x1 = rec->sx + rec->w > x1 ? rec->sx + rec->w : x1;
-            y1 = rec->sy + rec->h > y1 ? rec->sy + rec->h : y1;
-        }
-        if (x0 > x1) {
-            return; /* nothing to scale yet */
-        }
-        a->cx = (x0 + x1) / 2.0;
-        a->cy = (y0 + y1) / 2.0;
-        a->centered = true;
+    if (a->centered) {
+        return true;
     }
+    int x0 = INT32_MAX, y0 = INT32_MAX, x1 = INT32_MIN, y1 = INT32_MIN;
+    struct scale_rec *rec;
     wl_list_for_each(rec, &a->scale_recs, link) {
-        if (s == 1.0) {
-            wlr_scene_node_set_position(&rec->buffer->node, rec->node_x, rec->node_y);
-            wlr_scene_buffer_set_dest_size(rec->buffer, rec->dst_w, rec->dst_h);
+        x0 = rec->sx < x0 ? rec->sx : x0;
+        y0 = rec->sy < y0 ? rec->sy : y0;
+        x1 = rec->sx + rec->w > x1 ? rec->sx + rec->w : x1;
+        y1 = rec->sy + rec->h > y1 ? rec->sy + rec->h : y1;
+    }
+    if (x0 > x1) {
+        return false;
+    }
+    a->bx0 = x0;
+    a->by0 = y0;
+    a->bx1 = x1;
+    a->by1 = y1;
+    a->cx = (x0 + x1) / 2.0;
+    a->cy = (y0 + y1) / 2.0;
+    a->centered = true;
+    return true;
+}
+
+/* Put one buffer back as it was. */
+static void rec_restore(struct scale_rec *rec)
+{
+    wlr_scene_node_set_position(&rec->buffer->node, rec->node_x, rec->node_y);
+    wlr_scene_buffer_set_dest_size(rec->buffer, rec->dst_w, rec->dst_h);
+    wlr_scene_buffer_set_source_box(rec->buffer, rec->had_src ? &rec->src : NULL);
+    wlr_scene_node_set_enabled(&rec->buffer->node, rec->was_enabled);
+}
+
+/* Scale every buffer of the tree by sx and sy around the center of the tree (1, 1 restores). */
+static void scale_apply(struct animation *a, double sx, double sy)
+{
+    if (!recs_prepare(a)) {
+        return;
+    }
+    struct scale_rec *rec;
+    wl_list_for_each(rec, &a->scale_recs, link) {
+        if (sx == 1.0 && sy == 1.0) {
+            rec_restore(rec);
             continue;
         }
-        int dx = (int)lround((rec->sx - a->cx) * (s - 1));
-        int dy = (int)lround((rec->sy - a->cy) * (s - 1));
-        int w = (int)lround(rec->w * s), h = (int)lround(rec->h * s);
+        int dx = (int)lround((rec->sx - a->cx) * (sx - 1));
+        int dy = (int)lround((rec->sy - a->cy) * (sy - 1));
+        int w = (int)lround(rec->w * sx), h = (int)lround(rec->h * sy);
         wlr_scene_node_set_position(&rec->buffer->node, rec->node_x + dx, rec->node_y + dy);
         wlr_scene_buffer_set_dest_size(rec->buffer, w < 1 ? 1 : w, h < 1 ? 1 : h);
     }
+}
+
+/* Show only what is above the line `line_y` (layout coordinates): buffers below it are hidden,
+ * the one it cuts is cropped (source box and size in proportion). */
+static void crop_apply(struct animation *a, double line_y)
+{
+    if (!recs_prepare(a)) {
+        return;
+    }
+    struct scale_rec *rec;
+    wl_list_for_each(rec, &a->scale_recs, link) {
+        double vis = line_y - rec->sy;
+        if (vis >= rec->h) {
+            rec_restore(rec);
+        } else if (vis <= 0) {
+            wlr_scene_node_set_enabled(&rec->buffer->node, false);
+        } else {
+            struct wlr_fbox src = rec->src;
+            if (!rec->had_src) {
+                src = (struct wlr_fbox){0, 0, rec->buffer->buffer ? rec->buffer->buffer->width : rec->w,
+                                        rec->buffer->buffer ? rec->buffer->buffer->height : rec->h};
+            }
+            src.height *= vis / rec->h;
+            wlr_scene_node_set_enabled(&rec->buffer->node, rec->was_enabled);
+            wlr_scene_buffer_set_source_box(rec->buffer, &src);
+            wlr_scene_buffer_set_dest_size(rec->buffer, rec->w, (int)lround(vis) < 1 ? 1 : (int)lround(vis));
+        }
+    }
+}
+
+/* squeeze: q runs 0 (whole window) to 1 (gone): the height collapses to a line, then the width */
+static void squeeze_scales(double q, double *sx, double *sy)
+{
+    q = q < 0 ? 0 : q > 1 ? 1 : q;
+    if (q < 0.7) {
+        *sy = 1 - 0.98 * (q / 0.7);
+        *sx = 1;
+    } else {
+        *sy = 0.02;
+        *sx = 1 - 0.98 * ((q - 0.7) / 0.3);
+    }
+}
+
+/* fire: flames along the burn line, drawn at half resolution into an overlay above the window */
+static void fire_draw(struct animation *a, double line_y, bool emitting, uint32_t now)
+{
+    struct server *server = a->server;
+    if (!a->fire) {
+        const struct config *c = &server->config;
+        int margin = c->fire_size * 3 > 40 ? c->fire_size * 3 : 40;
+        a->fire = fire_sim_new(c->fire_particles, c->fire_size, c->fire_color, now | 1);
+        a->fire_buf = wlr_scene_buffer_create(server->windows_tree, NULL);
+        if (!a->fire || !a->fire_buf) {
+            return;
+        }
+        a->fire_buf->point_accepts_input = scene_buffer_no_input;
+        a->fire_ox = (int)a->bx0 - margin;
+        a->fire_oy = (int)a->by0 - margin;
+        a->fire_w = (int)(a->bx1 - a->bx0) + 2 * margin;
+        a->fire_h = (int)(a->by1 - a->by0) + 2 * margin;
+        a->last_ms = now;
+    }
+    double dt = (now - a->last_ms) / 1000.0;
+    a->last_ms = now;
+    fire_sim_step(a->fire, dt, a->bx0, a->bx1, line_y, emitting);
+    cairo_surface_t *surf = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, (a->fire_w + 1) / 2, (a->fire_h + 1) / 2);
+    fire_sim_draw(a->fire, surf, a->fire_ox, a->fire_oy, 0.5);
+    scene_buffer_set_cairo(a->fire_buf, surf);
+    wlr_scene_buffer_set_dest_size(a->fire_buf, a->fire_w, a->fire_h);
+    wlr_scene_node_set_position(&a->fire_buf->node, a->fire_ox, a->fire_oy);
+    wlr_scene_node_raise_to_top(&a->fire_buf->node);
 }
 
 /* ------------------------------------------------------- the animations */
@@ -231,6 +333,7 @@ static struct animation *anim_new(struct server *server, enum anim_kind kind, st
         return NULL;
     }
     a->kind = kind;
+    a->server = server;
     a->toplevel = t;
     a->tree = tree;
     a->from_x = a->to_x = tree->node.x;
@@ -250,8 +353,25 @@ static bool animation_apply(struct animation *a, uint32_t now)
     double ef = track_value(&a->fade, now, &fade_done);
     wlr_scene_node_set_position(&a->tree->node, (int)lround(anim_lerp(a->from_x, a->to_x, eg)),
                                 (int)lround(anim_lerp(a->from_y, a->to_y, eg)));
-    if (a->from_scale != 1 || a->to_scale != 1) {
-        scale_apply(a, anim_lerp(a->from_scale, a->to_scale, eg));
+    if (a->fx == ANIM_STYLE_SQUEEZE) {
+        double sx, sy;
+        squeeze_scales(a->fx_closing ? eg : 1 - eg, &sx, &sy);
+        scale_apply(a, sx, sy);
+    } else if (a->fx == ANIM_STYLE_FIRE) {
+        /* the burn takes the first 80% of the time, the rest is the last flames dying down */
+        double c = eg / 0.8;
+        c = c < 0 ? 0 : c > 1 ? 1 : c;
+        if (!a->fx_closing) {
+            c = 1 - c;
+        }
+        if (recs_prepare(a)) {
+            double line_y = a->by1 - c * (a->by1 - a->by0);
+            crop_apply(a, line_y);
+            fire_draw(a, line_y, c > 0 && c < 1, now);
+        }
+    } else if (a->scaled) {
+        double s = anim_lerp(a->from_scale, a->to_scale, eg);
+        scale_apply(a, s, s);
     }
     if (a->from_opacity != a->to_opacity) {
         tree_set_opacity(a->tree, anim_lerp(a->from_opacity, a->to_opacity, ef));
@@ -261,6 +381,10 @@ static bool animation_apply(struct animation *a, uint32_t now)
 
 static void animation_free(struct animation *a)
 {
+    if (a->fire_buf) {
+        wlr_scene_node_destroy(&a->fire_buf->node);
+    }
+    fire_sim_free(a->fire);
     scale_recs_free(a);
     wl_list_remove(&a->link);
     free(a);
@@ -270,14 +394,23 @@ static void animation_free(struct animation *a)
 static void animation_finish(struct animation *a)
 {
     if (a->destroy_tree) {
+        if (a->fire_buf) {
+            wlr_scene_node_destroy(&a->fire_buf->node);
+        }
+        fire_sim_free(a->fire);
         scale_recs_free(a); /* the buffers go with the tree */
         wlr_scene_node_destroy(&a->tree->node);
         wl_list_remove(&a->link);
         free(a);
         return;
     }
-    if (a->from_scale != 1 || a->to_scale != 1) {
-        scale_apply(a, 1);
+    if (a->scaled || a->fx == ANIM_STYLE_SQUEEZE) {
+        scale_apply(a, 1, 1);
+    } else if (a->fx == ANIM_STYLE_FIRE) {
+        struct scale_rec *rec;
+        wl_list_for_each(rec, &a->scale_recs, link) {
+            rec_restore(rec);
+        }
     }
     tree_set_opacity(a->tree, 1);
     if (a->hide_at_end) {
@@ -437,6 +570,15 @@ static bool style_geometry(struct animation *a, const struct anim_cfg *g, const 
         case ANIM_STYLE_POPIN:
             scale = (g->percent ? g->percent : 80) / 100.0;
             break;
+        case ANIM_STYLE_ZOOM: /* popin that fades, like Wayfire's zoom */
+            scale = (g->percent ? g->percent : 75) / 100.0;
+            fades = true;
+            break;
+        case ANIM_STYLE_SQUEEZE:
+        case ANIM_STYLE_FIRE:
+            a->fx = style;
+            a->fx_closing = closing;
+            break;
         case ANIM_STYLE_SLIDEFADE:
             slide_offset(box, out, g->dir, (g->percent ? g->percent : 20) / 100.0, &dx, &dy);
             /* a slidefade moves by a part of the window's size, not of the way off screen */
@@ -453,6 +595,7 @@ static bool style_geometry(struct animation *a, const struct anim_cfg *g, const 
             break;
         }
     }
+    a->scaled = scale != 1;
     track_start(&a->geo, g, now);
     if (closing) {
         a->from_x = rest_x;
