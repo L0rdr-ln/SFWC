@@ -1487,7 +1487,8 @@ static void run_hypr(struct app *app, struct wl_display *d)
     expect_px(&img, 148, 98, 0x000000, "popin out: gone afterwards");
     free(img.px);
 
-    /* workspaces: the old window slides out to the left while the new one slides in from the right */
+    /* workspaces: going up, the old window slides out to the left and the new one in from the right;
+     * going back down it is the other way round */
     win_open_ex(app, d, &a, "slider", 0xff000000u | C_CLIENT, 0, 1);
     wait_for(d, &app->kb_enter, 3000, "keyboard focus for the window");
     sleep_ms(2300);
@@ -1507,8 +1508,9 @@ static void run_hypr(struct app *app, struct wl_display *d)
     vtap(app, d, MOD_ALT, KEY_1);
     sleep_ms(500);
     img = capture_screen(app, d);
-    expect_px(&img, 1250, 300, C_CLIENT, "workspace slide: the window comes in from the right");
-    expect_px(&img, 300, 300, 0x000000, "workspace slide: it has not arrived yet");
+    /* going back to a lower workspace the content moves the other way: in from the left */
+    expect_px(&img, 30, 300, C_CLIENT, "workspace slide: the window comes in from the left");
+    expect_px(&img, 1000, 300, 0x000000, "workspace slide: it has not arrived yet");
     free(img.px);
     sleep_ms(2300);
     img = capture_screen(app, d);
