@@ -3,7 +3,12 @@
 Versions follow the roadmap milestones while the project is pre-1.0:
 `0.<milestone>.0` (v0.2.0 = M2). Dates are UTC.
 
-## Unreleased – M3 "Configuration" and M1–M3 completion
+## v0.6.0 – 2026-10-09 – M3 to M7: configuration, look and feel, desktop integration, theme templating
+
+Everything since v0.2.0. Builds against wlroots 0.18.2. (The wlroots 0.20 port, the Hyprland and
+Wayfire style animations and wobbly windows live on separate branches and are not part of this
+release.) Milestones: M3 configuration, M4 look and feel, M5 desktop integration, M6 themes and
+templating, M7 session integration.
 
 ### Changed
 - `src/main.c` (3000 lines) is split into modules by topic (window, output, input, cursor,
