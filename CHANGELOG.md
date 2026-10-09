@@ -21,6 +21,9 @@ Versions follow the roadmap milestones while the project is pre-1.0:
   layers, lock, ...) around a shared `src/server.h`; no behavior change.
 
 ### Added
+- Wayfire style window effects for open/close: `fire` (the window burns away from the bottom with
+  a particle flame, `fire_particles`, `fire_size`, `fire_color`), `squeeze` (CRT collapse) and
+  `zoom` (popin + fade). Test scenario `compositor-client-fx` and unit tests for the flames.
 - Hyprland style animations: named cubic Bézier curves (`bezier =`), `animation = type, on, speed,
   curve, style` rules, `preset = hyprland | minimal | none`. Styles popin (real scaling around
   the window's center), slide and slidefade for opening and closing windows, a separate fade

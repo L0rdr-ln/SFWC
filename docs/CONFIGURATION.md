@@ -173,7 +173,7 @@ animation = workspaces, 1, 3, easeOutQuint, slidefade 15%
 
 | Type | What moves | Styles |
 |---|---|---|
-| `windowsIn` / `windowsOut` / `windows` | a window opening / closing (`windows` sets both and `windowsMove`) | `popin [N%]` (grows from / shrinks to N% of its size around its center, default 80), `slide [left\|right\|top\|bottom]` (from / to the nearest screen edge, default), `slidefade [N%]` (moves by N% of its size, default 20, and fades) |
+| `windowsIn` / `windowsOut` / `windows` | a window opening / closing (`windows` sets both and `windowsMove`) | `popin [N%]` (grows from / shrinks to N% of its size around its center, default 80), `slide [left\|right\|top\|bottom]` (from / to the nearest screen edge, default), `slidefade [N%]` (moves by N% of its size, default 20, and fades), and the Wayfire style effects `fire`, `squeeze` and `zoom [N%]` (below) |
 | `windowsMove` | a window moved by maximize, restore or to the next output | none |
 | `fadeIn` / `fadeOut` / `fade` | the opacity of an opening / closing window, on its own timeline (so a window can `popin` over 0.4 s and fade over 0.2 s) | none |
 | `border` | the frame colors changing when the window gains or loses focus | none |
@@ -198,3 +198,27 @@ animation = workspaces, 1, 3, easeOutQuint, slidefade 15%
 - Scaling windows (`popin`) is done by resizing each of the window's buffers around its center
   for the length of the animation, which is cheap but means a window that is being resized by its
   client at the same moment can flicker.
+
+### Wayfire style effects: fire, squeeze, zoom
+
+Three more styles for `windowsIn` / `windowsOut` (and `windows`):
+
+```ini
+[animations]
+animation = windowsOut, 1, 6, default, fire      # the window burns away from the bottom
+animation = windowsIn,  1, 6, default, fire      # ... and un-burns when it opens
+# animation = windowsOut, 1, 4, ease, squeeze    # collapses to a line, then to nothing (TV off)
+# animation = windowsIn,  1, 4, ease, zoom 70%   # grows from 70% of its size while fading in
+fire_particles = 400      # at most this many flames at a time (20-2000)
+fire_size = 14            # radius of a flame in px (4-60)
+fire_color = #ff7a18      # the main color of the flames; the core is white-yellow, the tail red and smoke
+```
+
+- **fire**: the window's buffers are cropped along a burn line that climbs from the bottom while
+  flames (a small particle simulation, drawn in software at half resolution) rise from the line.
+  The burn takes the first 80% of the time, the last 20% is the flames dying down. Opening plays
+  it backwards. The flames are translucent, so you can see the window burn.
+- **squeeze**: the height collapses to a line first, then the width, like a switched off CRT.
+- **zoom**: a popin that always fades (`popin` leaves the fading to the `fade` rule).
+- Not possible with the scene graph, so not offered: Wayfire's `spin` (rotation) and the
+  GPU-shader effects.

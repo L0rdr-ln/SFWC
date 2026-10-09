@@ -45,7 +45,8 @@ save it.
   [templates](docs/THEMES.md#one-theme-for-the-whole-desktop-templating).
 - **Animations, Hyprland style** – popin, slide and slidefade on open and close, workspace slides,
   a border color fade, your own Bézier curves, `animation = ...` lines that mostly work as in a
-  Hyprland config, or a ready-made `preset = hyprland`; one switch
+  Hyprland config, or a ready-made `preset = hyprland`; Wayfire style **fire** (windows burn
+  away with flames), **squeeze** (TV off) and **zoom**; one switch
   turns them all off.
 - **Workspaces** (1–9), **layer-shell** bars/wallpapers/launchers (waybar, swaybg, fuzzel, ...),
   **screen lock** (swaylock), idle (swayidle), taskbars, clipboard managers, screenshots (grim).
