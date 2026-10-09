@@ -5,7 +5,24 @@ Versions follow the roadmap milestones while the project is pre-1.0:
 
 ## Unreleased
 
+### Fixed
+- The picture of a closing window that fades out was drawn shifted by the window's own position
+  (wlroots reports buffer positions including the root node's offset); the old test only looked at
+  a maximized window.
+
 ### Added
+- Wayfire style window effects for open/close: `fire` (the window burns away from the bottom with
+  a particle flame, `fire_particles`, `fire_size`, `fire_color`), `squeeze` (CRT collapse) and
+  `zoom` (popin + fade). Test scenario `compositor-client-fx` and unit tests for the flames.
+- Hyprland style animations: named cubic Bézier curves (`bezier =`), `animation = type, on, speed,
+  curve, style` rules, `preset = hyprland | minimal | none`. Styles popin (real scaling around
+  the window's center), slide and slidefade for opening and closing windows, a separate fade
+  timeline, workspace slides (`slide`, `slidevert`, `slidefade`, `fade`), the frame colors fading
+  when focus changes (`border`), and layer surfaces fading or growing in. The old `open`,
+  `close`, `move`, `duration_ms` and `easing` keys keep working. See docs/CONFIGURATION.md.
+- Test scenario `compositor-client-hypr` (pixel checks of popin in/out, workspace slides in both
+  directions, slide left and the border color half way) and unit tests for the curves, the rules
+  and the color blend.
 - Plugin API (`include/sfwc-plugin.h`, docs/PLUGINS.md): `[plugins] load = NAME` loads
   `NAME.so` from `$SFWC_PLUGIN_PATH`, the user's data directory or the install directory;
   `[plugin:NAME]` sections hold the plugin's settings. Plugins get a frame callback, a view of the
@@ -19,6 +36,12 @@ Versions follow the roadmap milestones while the project is pre-1.0:
   by the sfwc-plugins CI against the real plugin.
 
 ### Changed
+- Builds against **wlroots 0.20.0** (was 0.18.2). Needs wayland >= 1.24 and xkbcommon >= 1.8,
+  which meson builds from `subprojects/` when the system's are older (new `xkbcommon.wrap`;
+  `bison` and `flex` are needed for that). The only API change that affected the code was the
+  removal of `wlr_xdg_surface_get_geometry()`: the window geometry is now read from
+  `wlr_xdg_surface.geometry`. All unit and end-to-end tests pass unchanged on 0.20.
+- CI runs only sfwc's own tests (`--suite sfwc`): the wlroots subprojects bring slow tests of their own.
 - wlroots is built as a shared library (plugins must share the compositor's copy).
 
 ## v0.6.0 – 2026-10-09 – M3 to M7: configuration, look and feel, desktop integration, theme templating

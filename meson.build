@@ -20,7 +20,14 @@ inih_dep = declare_dependency(
   link_with: inih,
   include_directories: include_directories('third_party/inih'))
 
-xkbcommon = dependency('xkbcommon')
+# The compositor build needs a newer xkbcommon (wlroots 0.20 asks for >= 1.8); the parsers only
+# need the keysym names, any version will do.
+xkbcommon = dependency('xkbcommon',
+  version: get_option('compositor') ? '>=1.8.0' : '>=1.4.0',
+  fallback: ['xkbcommon', 'xkbcommon_dep'],
+  default_options: ['enable-docs=false', 'enable-tools=false', 'enable-x11=false',
+                    'enable-wayland=false', 'enable-xkbregistry=false',
+                    'enable-bash-completion=false'])
 
 # Parsers, independent of wlroots so they can be unit-tested everywhere.
 inifile_lib = static_library('sfwc_inifile', 'src/inifile.c', dependencies: inih_dep)
@@ -29,12 +36,20 @@ inifile_dep = declare_dependency(
   include_directories: include_directories('src'),
   dependencies: inih_dep)
 
+libm = meson.get_compiler('c').find_library('m')
+
+anim_lib = static_library('sfwc_anim', 'src/anim.c')
+anim_dep = declare_dependency(
+  link_with: anim_lib,
+  include_directories: include_directories('src'),
+  dependencies: libm)
+
 config_lib = static_library('sfwc_config', 'src/config.c',
-  dependencies: [inifile_dep, xkbcommon])
+  dependencies: [inifile_dep, xkbcommon, anim_dep])
 config_dep = declare_dependency(
   link_with: config_lib,
   include_directories: include_directories('src'),
-  dependencies: [inifile_dep, xkbcommon])
+  dependencies: [inifile_dep, xkbcommon, anim_dep])
 
 theme_lib = static_library('sfwc_theme', 'src/theme.c', dependencies: inifile_dep)
 theme_dep = declare_dependency(
@@ -42,7 +57,6 @@ theme_dep = declare_dependency(
   include_directories: include_directories('src'),
   dependencies: inifile_dep)
 
-libm = meson.get_compiler('c').find_library('m')
 
 template_lib = static_library('sfwc_template', 'src/template.c', dependencies: [theme_dep, libm])
 template_dep = declare_dependency(
@@ -55,14 +69,16 @@ theme_apply_exe = executable('sfwc-theme-apply', 'src/sfwc-theme-apply.c',
   dependencies: [template_dep, theme_dep], install: true)
 install_man('man/sfwc-theme-apply.1')
 
-anim_lib = static_library('sfwc_anim', 'src/anim.c')
-anim_dep = declare_dependency(
-  link_with: anim_lib,
-  include_directories: include_directories('src'))
-
 cairo = dependency('cairo')
 pangocairo = dependency('pangocairo')
 fontconfig = dependency('fontconfig')
+
+# Flames for the `fire` animation: a particle simulation and its software drawing.
+fire_lib = static_library('sfwc_fire', 'src/fx_fire.c', dependencies: [cairo, libm])
+fire_dep = declare_dependency(
+  link_with: fire_lib,
+  include_directories: include_directories('src'),
+  dependencies: [cairo, libm])
 
 deco_lib = static_library('sfwc_deco', 'src/deco.c',
   dependencies: [theme_dep, cairo, pangocairo, libm])
@@ -72,11 +88,11 @@ deco_dep = declare_dependency(
   dependencies: [theme_dep, cairo, pangocairo, libm])
 
 if get_option('compositor')
-  # Uses the system wlroots 0.18 if present, otherwise builds it from
+  # Uses the system wlroots 0.20 if present, otherwise builds it from
   # subprojects/wlroots.wrap.
   # Shared, because plugins (shared objects loaded at run time) must use the compositor's copy
   # of wlroots, not their own.
-  wlroots = dependency('wlroots-0.18', fallback: ['wlroots', 'wlroots_dep'],
+  wlroots = dependency('wlroots-0.20', fallback: ['wlroots', 'wlroots_dep'],
     default_options: ['examples=false', 'default_library=shared'])
   wayland_server = dependency('wayland-server')
   libdrm = dependency('libdrm')
@@ -113,7 +129,7 @@ if get_option('compositor')
 
   sfwc_exe = executable('sfwc',
     sfwc_sources, xdg_shell_h, layer_shell_h, session_lock_h,
-    dependencies: [wlroots, wayland_server, xkbcommon, libm, libdrm, libdl, config_dep, theme_dep, template_dep, deco_dep, anim_dep],
+    dependencies: [wlroots, wayland_server, xkbcommon, libm, libdrm, libdl, config_dep, theme_dep, template_dep, deco_dep, anim_dep, fire_dep],
     include_directories: include_directories('include'),
     c_args: ['-Wno-unused-parameter', '-DSFWC_PLUGIN_DIR="' + plugin_dir + '"'],
     export_dynamic: false,
@@ -131,7 +147,7 @@ if get_option('compositor')
   import('pkgconfig').generate(name: 'sfwc-plugin',
     description: 'Header for writing sfwc plugins',
     version: meson.project_version(),
-    requires: 'wlroots-0.18',
+    requires: 'wlroots-0.20',
     subdirs: 'sfwc',
     variables: ['plugindir=' + plugin_dir])
 endif

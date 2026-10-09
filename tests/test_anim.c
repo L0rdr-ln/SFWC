@@ -55,6 +55,55 @@ int main(void)
     CHECK(NEAR(anim_lerp(10, 20, 0.5), 15));
     CHECK(NEAR(anim_lerp(20, 10, 0.25), 17.5));
 
+    /* cubic Bézier curves */
+    struct anim_curve lin = {0, 0, 1, 1};
+    for (int i = 0; i <= 20; i++) {
+        double t = i / 20.0;
+        CHECK(fabs(anim_curve_eval(&lin, t) - t) < 1e-5); /* (0,0,1,1) is the identity */
+    }
+    struct anim_curve ease = {0.25, 0.1, 0.25, 1.0}, def;
+    CHECK(anim_builtin_curve("ease", &def) && def.x0 == ease.x0 && def.y0 == ease.y0);
+    CHECK(anim_builtin_curve("default", &def) && def.y0 == 0.75);
+    CHECK(!anim_builtin_curve("nope", &def));
+    /* CSS reference values: ease(0.5) ~ 0.8024, ease-in-out(0.25) ~ 0.1288 (to 3 digits) */
+    CHECK(fabs(anim_curve_eval(&ease, 0.5) - 0.8024) < 0.002);
+    struct anim_curve io;
+    anim_builtin_curve("ease-in-out", &io);
+    CHECK(fabs(anim_curve_eval(&io, 0.25) - 0.1288) < 0.002);
+    CHECK(fabs(anim_curve_eval(&io, 0.5) - 0.5) < 1e-4);
+    for (const char *const *n = (const char *const[]){"linear", "default", "ease", "ease-in", "ease-out",
+                                                    "ease-in-out", NULL};
+         *n; n++) {
+        struct anim_curve c;
+        CHECK(anim_builtin_curve(*n, &c) && anim_curve_valid(&c));
+        CHECK(NEAR(anim_curve_eval(&c, 0), 0) && NEAR(anim_curve_eval(&c, 1), 1));
+        CHECK(NEAR(anim_curve_eval(&c, -1), 0) && NEAR(anim_curve_eval(&c, 2), 1));
+        double prev = -1; /* these are monotonic */
+        for (int i = 0; i <= 200; i++) {
+            double v = anim_curve_eval(&c, i / 200.0);
+            CHECK(v >= prev - 1e-9);
+            prev = v;
+        }
+    }
+    /* an overshooting curve leaves [0,1] but still ends at 1; extreme control points stay stable */
+    struct anim_curve over = {0.05, 0.9, 0.1, 1.05};
+    CHECK(anim_curve_valid(&over));
+    double peak = 0;
+    for (int i = 0; i <= 200; i++) {
+        double v = anim_curve_eval(&over, i / 200.0);
+        CHECK(isfinite(v));
+        if (v > peak) {
+            peak = v;
+        }
+    }
+    CHECK(peak > 1.0 && peak < 1.1 && NEAR(anim_curve_eval(&over, 1), 1));
+    struct anim_curve flat = {0, 0, 0, 0}, steep = {1, 1, 1, 1};
+    for (int i = 0; i <= 50; i++) {
+        CHECK(isfinite(anim_curve_eval(&flat, i / 50.0)) && isfinite(anim_curve_eval(&steep, i / 50.0)));
+    }
+    struct anim_curve bad = {1.5, 0, 0.5, 1}, bad2 = {0.5, 0, -0.1, 1}, nan = {0.5, NAN, 0.5, 1};
+    CHECK(!anim_curve_valid(&bad) && !anim_curve_valid(&bad2) && !anim_curve_valid(&nan));
+
     if (failures) {
         fprintf(stderr, "%d check(s) failed\n", failures);
         return 1;

@@ -136,6 +136,26 @@ static void test_chrome_pixels(void)
     CHECK(is_color(s, 188, 16, 0x45475a)); /* buttons are dimmed when not focused */
     cairo_surface_destroy(s);
 
+    /* in between (the border animation): half way from unfocused #45475a to focused #89b4fa, and
+     * the endpoints are exactly the two looks */
+    s = deco_render_chrome(&t, cw, ch, 0.5, NULL, 1.0);
+    {
+        int r, g, b, al;
+        pixel(s, 102, 0, &r, &g, &b, &al);
+        CHECK(abs(r - (0x45 + 0x89) / 2) <= 1 && abs(g - (0x47 + 0xb4) / 2) <= 1 && abs(b - (0x5a + 0xfa) / 2) <= 1);
+        pixel(s, 100, 25, &r, &g, &b, &al); /* titlebar: between #1e1e2e and #313244 */
+        CHECK(abs(r - (0x1e + 0x31) / 2) <= 1 && abs(g - (0x1e + 0x32) / 2) <= 1 && abs(b - (0x2e + 0x44) / 2) <= 1);
+        pixel(s, 188, 16, &r, &g, &b, &al); /* close button: between the dimmed and the real color */
+        CHECK(r > 0x45 && r < 0xf3 && g > 0x47 - 1 && g < 0x8b + 1);
+    }
+    cairo_surface_destroy(s);
+    s = deco_render_chrome(&t, cw, ch, 1.0, NULL, 1.0);
+    CHECK(is_color(s, 102, 0, 0x89b4fa));
+    cairo_surface_destroy(s);
+    s = deco_render_chrome(&t, cw, ch, 0.0, NULL, 1.0);
+    CHECK(is_color(s, 102, 0, 0x45475a));
+    cairo_surface_destroy(s);
+
     /* scale 2 */
     s = deco_render_chrome(&t, cw, ch, true, NULL, 2.0);
     CHECK(cairo_image_surface_get_width(s) == 408 && cairo_image_surface_get_height(s) == 264);

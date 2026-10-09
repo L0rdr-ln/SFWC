@@ -63,6 +63,7 @@
 
 #include "config.h"
 #include "anim.h"
+#include "fx_fire.h"
 #include "deco.h"
 #include "template.h"
 #include "theme.h"
@@ -201,6 +202,17 @@ struct toplevel {
     struct wlr_scene_buffer *shadow;
     int frame_cw, frame_ch, shadow_w, shadow_h;
     bool frame_focused;
+    /* focus transition of the frame colors (animation type `border`) */
+    bool focus_known;
+    double focus_target; /* 1 = focused look, 0 = unfocused look */
+    double focus_mix;    /* what the frame should show now, 0..1 */
+    double frame_mix;    /* what was drawn */
+    struct {
+        bool active;
+        uint32_t start_ms, duration_ms;
+        double from, to;
+        struct anim_curve curve;
+    } border_anim;
     double frame_scale;
     unsigned frame_gen, shadow_gen;
     char *frame_title;
@@ -258,19 +270,56 @@ struct keyboard {
 
 /* Move the window so its geometry's top-left corner is at (x, y). */
 /* -------------------------------------------------------------- animations */
-enum anim_kind { ANIM_OPEN, ANIM_CLOSE, ANIM_MOVE };
+enum anim_kind { ANIM_OPEN, ANIM_CLOSE, ANIM_MOVE, ANIM_WORKSPACE, ANIM_LAYER };
 
+/* One timeline: progress over `duration_ms` mapped through a Bézier curve. */
+struct anim_track {
+    bool on;
+    uint32_t start_ms, duration_ms;
+    struct anim_curve curve;
+};
+
+/* The original place and size of one scene buffer of an animated tree, so that scaling can be
+ * undone exactly. Dropped when the buffer goes away. */
+struct scale_rec {
+    struct wl_list link;
+    struct wlr_scene_buffer *buffer;
+    struct wl_listener destroy;
+    int node_x, node_y; /* position inside its parent */
+    int sx, sy;         /* position inside the animated tree */
+    int w, h;           /* size on screen */
+    int dst_w, dst_h;   /* what the buffer's dest size was (0 = not set) */
+    struct wlr_fbox src; /* its source box, if it had one */
+    bool had_src;
+    bool was_enabled;
+};
 
 struct animation {
     struct wl_list link;
     enum anim_kind kind;
-    struct toplevel *toplevel; /* OPEN and MOVE; NULL for CLOSE */
+    struct toplevel *toplevel; /* OPEN, MOVE, WORKSPACE; NULL for CLOSE and LAYER */
     struct wlr_scene_tree *tree;
-    uint32_t start_ms, duration_ms;
-    enum anim_easing easing;
+    struct anim_track geo;  /* position and scale */
+    struct anim_track fade; /* opacity */
     double from_x, from_y, to_x, to_y; /* position of `tree` */
+    double from_scale, to_scale;       /* popin: around the center of the tree */
     double from_opacity, to_opacity;
     bool destroy_tree; /* CLOSE: the tree is a snapshot that goes away at the end */
+    bool hide_at_end;  /* WORKSPACE: show or hide the window as its workspace says, at rest_x/y */
+    double rest_x, rest_y;
+    struct wl_list scale_recs; /* struct scale_rec */
+    bool centered;
+    double cx, cy;
+    bool scaled;       /* popin / zoom: scale from_scale -> to_scale */
+    /* Wayfire style effects (fx is ANIM_STYLE_SQUEEZE or ANIM_STYLE_FIRE, else ANIM_STYLE_DEFAULT) */
+    struct server *server;
+    enum anim_style fx;
+    bool fx_closing;
+    double bx0, by0, bx1, by1; /* the area of the animated tree, in layout coordinates */
+    struct fire_sim *fire;
+    struct wlr_scene_buffer *fire_buf;
+    int fire_ox, fire_oy, fire_w, fire_h; /* the area the flames are drawn into */
+    uint32_t last_ms;
 };
 #define MAX_OUTPUTS 16
 
@@ -282,16 +331,18 @@ void init_config(struct server *server, struct wl_event_loop *loop);
 
 /* animate.c */
 bool animations_enabled(struct server *server);
-struct animation *animation_start(struct server *server, enum anim_kind kind, struct toplevel *t,
-                                  struct wlr_scene_tree *tree, double from_x, double from_y,
-                                  double to_x, double to_y, double from_opacity,
-                                  double to_opacity);
 void animations_tick(struct server *server);
 bool animations_busy(struct toplevel *t);
 void animations_cancel(struct toplevel *t, bool finish);
+void animations_cancel_tree(struct server *server, struct wlr_scene_tree *tree);
+void animations_finish_workspace(struct server *server);
 void animate_open(struct toplevel *t);
 void snapshot_refresh(struct toplevel *t);
 void animate_close(struct toplevel *t);
+bool animate_move(struct toplevel *t, double from_x, double from_y, double to_x, double to_y);
+void animate_border(struct toplevel *t, double from, double to);
+void animate_workspace_switch(struct server *server, int old_ws, int new_ws);
+void animate_layer_open(struct server *server, struct wlr_scene_tree *tree);
 uint32_t now_msec(void);
 
 /* plugin.c */
@@ -323,6 +374,8 @@ void move_to_workspace(struct toplevel *t, int ws);
 void workspace_clamp(struct server *server);
 
 /* decoration.c */
+void scene_buffer_set_cairo(struct wlr_scene_buffer *node, cairo_surface_t *surface);
+bool scene_buffer_no_input(struct wlr_scene_buffer *buffer, double *sx, double *sy);
 struct deco_insets toplevel_insets(struct toplevel *t);
 struct wlr_box toplevel_outer(struct toplevel *t);
 void frame_refresh(struct toplevel *t);

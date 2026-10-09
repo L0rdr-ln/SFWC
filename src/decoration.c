@@ -47,7 +47,8 @@ static struct wlr_buffer *cairo_buffer_create(cairo_surface_t *surface)
     return &cb->base;
 }
 
-static void set_scene_buffer_from_surface(struct wlr_scene_buffer *node, cairo_surface_t *surface)
+/* Show a cairo image in a scene buffer (takes ownership of the surface). */
+void scene_buffer_set_cairo(struct wlr_scene_buffer *node, cairo_surface_t *surface)
 {
     struct wlr_buffer *buffer = cairo_buffer_create(surface);
     wlr_scene_buffer_set_buffer(node, buffer);
@@ -55,7 +56,7 @@ static void set_scene_buffer_from_surface(struct wlr_scene_buffer *node, cairo_s
 }
 
 /* The shadow must not catch pointer input. */
-static bool no_input(struct wlr_scene_buffer *buffer, double *sx, double *sy)
+bool scene_buffer_no_input(struct wlr_scene_buffer *buffer, double *sx, double *sy)
 {
     return false;
 }
@@ -99,6 +100,8 @@ static void frame_destroy(struct toplevel *t)
     }
     free(t->frame_title);
     t->frame_title = NULL;
+    t->focus_known = false; /* a new frame starts with the right colors, no transition */
+    t->border_anim.active = false;
 }
 
 /* (Re)create the frame for the current size, focus, title and theme; no-ops when nothing
@@ -112,7 +115,7 @@ void frame_refresh(struct toplevel *t)
     }
     const struct theme *theme = &server->theme;
     struct wlr_box geo;
-    wlr_xdg_surface_get_geometry(t->xdg_toplevel->base, &geo);
+    geo = t->xdg_toplevel->base->geometry; /* wlroots 0.20: kept up to date on commit */
     if (geo.width <= 0 || geo.height <= 0) {
         return;
     }
@@ -123,7 +126,7 @@ void frame_refresh(struct toplevel *t)
     if (!t->frame_tree) {
         t->frame_tree = wlr_scene_tree_create(t->scene_tree);
         t->shadow = wlr_scene_buffer_create(t->frame_tree, NULL);
-        t->shadow->point_accepts_input = no_input;
+        t->shadow->point_accepts_input = scene_buffer_no_input;
         t->chrome = wlr_scene_buffer_create(t->frame_tree, NULL);
         wlr_scene_node_lower_to_bottom(&t->frame_tree->node); /* behind the client surface */
         t->frame_cw = t->frame_ch = 0;
@@ -131,11 +134,21 @@ void frame_refresh(struct toplevel *t)
     struct deco_insets in = deco_insets(theme);
     int ow = geo.width + in.left + in.right, oh = geo.height + in.top + in.bottom;
 
+    /* the focus look: switches at once, or fades when the `border` animation is on */
+    double target = focused ? 1.0 : 0.0;
+    if (!t->focus_known) {
+        t->focus_known = true;
+        t->focus_target = t->focus_mix = target;
+    } else if (t->focus_target != target) {
+        t->focus_target = target;
+        animate_border(t, t->focus_mix, target);
+    }
+
     bool title_changed = !t->frame_title || strcmp(t->frame_title, title) != 0;
-    if (t->frame_cw != geo.width || t->frame_ch != geo.height || t->frame_focused != focused ||
+    if (t->frame_cw != geo.width || t->frame_ch != geo.height || t->frame_mix != t->focus_mix ||
         t->frame_scale != scale || t->frame_gen != server->theme_gen || title_changed) {
-        cairo_surface_t *surf = deco_render_chrome(theme, geo.width, geo.height, focused, title, scale);
-        set_scene_buffer_from_surface(t->chrome, surf);
+        cairo_surface_t *surf = deco_render_chrome(theme, geo.width, geo.height, t->focus_mix, title, scale);
+        scene_buffer_set_cairo(t->chrome, surf);
         wlr_scene_buffer_set_dest_size(t->chrome, ow, oh);
         wlr_scene_node_set_position(&t->chrome->node, -in.left, -in.top);
         free(t->frame_title);
@@ -147,7 +160,7 @@ void frame_refresh(struct toplevel *t)
     if (theme->shadow_enabled && R > 0 &&
         (t->shadow_w != ow || t->shadow_h != oh || t->shadow_gen != server->theme_gen)) {
         cairo_surface_t *surf = deco_render_shadow(theme, ow, oh, 4);
-        set_scene_buffer_from_surface(t->shadow, surf);
+        scene_buffer_set_cairo(t->shadow, surf);
         wlr_scene_buffer_set_dest_size(t->shadow, ow + 2 * R, oh + 2 * R);
         wlr_scene_node_set_position(&t->shadow->node, -in.left - R,
                                     -in.top - R + theme->shadow_offset_y);
@@ -158,6 +171,7 @@ void frame_refresh(struct toplevel *t)
     t->frame_cw = geo.width;
     t->frame_ch = geo.height;
     t->frame_focused = focused;
+    t->frame_mix = t->focus_mix;
     t->frame_scale = scale;
     t->frame_gen = server->theme_gen;
 }

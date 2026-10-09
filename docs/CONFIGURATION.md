@@ -43,7 +43,7 @@ are safe. Booleans: `true/false/yes/no/on/off/1/0`.
 | keyboard | `repeat_rate` / `repeat_delay` | 0–1000 / 0–10000, `25` / `600` | key repeat (characters per second, ms before repeating; rate 0 = off) |
 | windows | `default_layout` | `floating` | only floating exists |
 | animations | `enabled` | bool, `true` | `false` turns every animation off (reduced motion); `SFWC_NO_ANIMATIONS=1` does the same from the environment |
-| animations | `open` / `close` | `none`, `fade`, `fade-scale`, `slide` (`fade`, `fade`) | `fade-scale` is a fade with a short upward slide (10 px) and `slide` a fade with a 32 px slide, because the wlroots 0.18 scene graph cannot scale windows |
+| animations | `open` / `close` | `none`, `fade`, `fade-scale`, `slide` (`fade`, `fade`) | `fade-scale` is a fade with a short upward slide (10 px) and `slide` a fade with a 32 px slide, (the old keys; the `animation =` rules below can scale windows) |
 | animations | `move` | bool, `true` | slide the window when it is moved by maximize, restore or `move-to-next-output` (dragging is always immediate) |
 | animations | `resize` | bool | accepted for compatibility, no effect: a window's content is resized by the client |
 | animations | `duration_ms` / `easing` | 0-5000 / `linear`, `ease-in`, `ease-out`, `ease-in-out` | duration and curve of all animations |
@@ -144,6 +144,84 @@ the lock client gets keyboard and pointer, and all keybinds except `quit` are of
 that crashes leaves the session locked), `ext-idle-notify` and idle inhibit (swayidle),
 `wlr-foreign-toplevel-management` (taskbars), primary selection, `wlr-data-control` (clipboard
 managers) and `wlr-screencopy` (grim).
+
+## Animations (Hyprland style)
+
+The `[animations]` section takes the same kind of lines as Hyprland, so an animation block from a
+Hyprland config mostly works as it is:
+
+```ini
+[animations]
+enabled = true
+# a named curve: bezier = name, x0, y0, x1, y1   (x between 0 and 1, y may overshoot)
+bezier = myBezier, 0.05, 0.9, 0.1, 1.05
+# animation = type, on, speed, curve[, style]     speed is in units of 100 ms
+animation = windows, 1, 4, myBezier
+animation = windowsOut, 1, 5, default, popin 80%
+animation = fade, 1, 7, default
+animation = border, 1, 10, default
+animation = workspaces, 1, 6, default, slide
+```
+
+Or start from a ready-made set and change what you like (later lines win):
+
+```ini
+[animations]
+preset = hyprland     # hyprland | minimal | none
+animation = workspaces, 1, 3, easeOutQuint, slidefade 15%
+```
+
+| Type | What moves | Styles |
+|---|---|---|
+| `windowsIn` / `windowsOut` / `windows` | a window opening / closing (`windows` sets both and `windowsMove`) | `popin [N%]` (grows from / shrinks to N% of its size around its center, default 80), `slide [left\|right\|top\|bottom]` (from / to the nearest screen edge, default), `slidefade [N%]` (moves by N% of its size, default 20, and fades), and the Wayfire style effects `fire`, `squeeze` and `zoom [N%]` (below) |
+| `windowsMove` | a window moved by maximize, restore or to the next output | none |
+| `fadeIn` / `fadeOut` / `fade` | the opacity of an opening / closing window, on its own timeline (so a window can `popin` over 0.4 s and fade over 0.2 s) | none |
+| `border` | the frame colors changing when the window gains or loses focus | none |
+| `workspaces` | switching workspace: the old windows leave, the new ones arrive | `slide [N%]`, `slidevert`, `slidefade [N%]`, `slidefadevert`, `fade` |
+| `layers` / `layersIn` | bars, launchers and notifications appearing | `fade` (default), `popin [N%]`; `slide` is shown as a fade |
+| `global` | the default for every type without its own rule (no style) | none |
+
+- `animation = type, 0` turns one type off. The speed is in units of 100 ms, as in Hyprland, so
+  `4` is 400 ms.
+- Curves: `linear`, `default`, `ease`, `ease-in`, `ease-out` and `ease-in-out` are built in; define
+  your own with `bezier =` **before** the lines that use them. A curve with y values above 1
+  overshoots (a little bounce).
+- Going to a higher workspace moves the content to the left (the new windows come in from the
+  right), going back moves it the other way.
+- Without any `animation =` line the old keys (`open`, `close`, `move`, `duration_ms`, `easing`)
+  keep working exactly as before. `enabled = false` and `SFWC_NO_ANIMATIONS=1` switch everything
+  off.
+- Not supported (they only produce a warning, so a pasted Hyprland block still loads):
+  `borderangle`, `fadeSwitch`, `fadeShadow`, `fadeDim`, `fadeLayers`, `specialWorkspace`,
+  `workspacesIn/Out`, `monitorAdded`, and the `gnomed` style. Layer surfaces do not animate when
+  they close yet.
+- Scaling windows (`popin`) is done by resizing each of the window's buffers around its center
+  for the length of the animation, which is cheap but means a window that is being resized by its
+  client at the same moment can flicker.
+
+### Wayfire style effects: fire, squeeze, zoom
+
+Three more styles for `windowsIn` / `windowsOut` (and `windows`):
+
+```ini
+[animations]
+animation = windowsOut, 1, 6, default, fire      # the window burns away from the bottom
+animation = windowsIn,  1, 6, default, fire      # ... and un-burns when it opens
+# animation = windowsOut, 1, 4, ease, squeeze    # collapses to a line, then to nothing (TV off)
+# animation = windowsIn,  1, 4, ease, zoom 70%   # grows from 70% of its size while fading in
+fire_particles = 400      # at most this many flames at a time (20-2000)
+fire_size = 14            # radius of a flame in px (4-60)
+fire_color = #ff7a18      # the main color of the flames; the core is white-yellow, the tail red and smoke
+```
+
+- **fire**: the window's buffers are cropped along a burn line that climbs from the bottom while
+  flames (a small particle simulation, drawn in software at half resolution) rise from the line.
+  The burn takes the first 80% of the time, the last 20% is the flames dying down. Opening plays
+  it backwards. The flames are translucent, so you can see the window burn.
+- **squeeze**: the height collapses to a line first, then the width, like a switched off CRT.
+- **zoom**: a popin that always fades (`popin` leaves the fading to the `fade` rule).
+- Not possible with the scene graph, so not offered: Wayfire's `spin` (rotation) and the
+  GPU-shader effects.
 
 ## [plugins] and [plugin:NAME]
 

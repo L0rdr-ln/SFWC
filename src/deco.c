@@ -150,7 +150,19 @@ static void corner_radii(const struct theme *t, int ow, int oh, double *top, dou
     *bottom = r < limit ? r : floor(limit);
 }
 
-cairo_surface_t *deco_render_chrome(const struct theme *t, int cw, int ch, bool focused,
+static struct color mix_color(struct color a, struct color b, double f)
+{
+    if (f <= 0) {
+        return a;
+    }
+    if (f >= 1) {
+        return b;
+    }
+    return (struct color){(float)(a.r + (b.r - a.r) * f), (float)(a.g + (b.g - a.g) * f),
+                         (float)(a.b + (b.b - a.b) * f), (float)(a.a + (b.a - a.a) * f)};
+}
+
+cairo_surface_t *deco_render_chrome(const struct theme *t, int cw, int ch, double focus,
                                     const char *title, double scale)
 {
     int bw = t->border_width, th = t->titlebar_height;
@@ -164,7 +176,7 @@ cairo_surface_t *deco_render_chrome(const struct theme *t, int cw, int ch, bool 
     corner_radii(t, ow, oh, &r_top, &r_bottom);
 
     /* border: the whole outer shape */
-    set_color(cr, focused ? t->border_focused : t->border_unfocused);
+    set_color(cr, mix_color(t->border_unfocused, t->border_focused, focus));
     rrect(cr, 0, 0, ow, oh, r_top, r_top, r_bottom, r_bottom);
     cairo_fill(cr);
 
@@ -174,7 +186,7 @@ cairo_surface_t *deco_render_chrome(const struct theme *t, int cw, int ch, bool 
         if (rt < 0) {
             rt = 0;
         }
-        set_color(cr, focused ? t->titlebar_focused : t->titlebar_unfocused);
+        set_color(cr, mix_color(t->titlebar_unfocused, t->titlebar_focused, focus));
         rrect(cr, bw, bw, cw, th, rt, rt, 0, 0);
         cairo_fill(cr);
     }
@@ -198,10 +210,7 @@ cairo_surface_t *deco_render_chrome(const struct theme *t, int cw, int ch, bool 
             struct color c = buttons[i] == DECO_CLOSE      ? t->close_button
                              : buttons[i] == DECO_MAXIMIZE ? t->maximize_button
                                                            : t->minimize_button;
-            if (!focused) {
-                c = t->border_unfocused;
-            }
-            set_color(cr, c);
+            set_color(cr, mix_color(t->border_unfocused, c, focus)); /* dimmed when unfocused */
             cairo_arc(cr, bw + cx, bw + th + cy, t->button_size / 2.0, 0, 2 * M_PI);
             cairo_fill(cr);
             if (cx - t->button_size / 2.0 < left_most) {

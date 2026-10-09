@@ -56,9 +56,10 @@ bool deco_button_center(const struct theme *t, int content_w, enum deco_part but
 
 /* Titlebar, borders and buttons as an ARGB32 image of the outer frame
  * ((content_w + 2*bw) x (content_h + titlebar + 2*bw) logical px, times `scale`).
- * The content area is transparent. */
+ * The content area is transparent. `focus` is 0 for the unfocused look, 1 for the focused one,
+ * and blends the colors in between (the border animation). */
 cairo_surface_t *deco_render_chrome(const struct theme *t, int content_w, int content_h,
-                                    bool focused, const char *title, double scale);
+                                    double focus, const char *title, double scale);
 
 /* Blurred drop shadow for an outer frame of the given size. The image covers the frame
  * plus `shadow_radius` on every side, at 1/divisor of the resolution (the caller scales it

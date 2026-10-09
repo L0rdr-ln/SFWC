@@ -8,7 +8,7 @@
   <a href="https://github.com/L0rdr-ln/Simple-Floating-Wayland-Compositor/actions/workflows/build.yml"><img src="https://github.com/L0rdr-ln/Simple-Floating-Wayland-Compositor/actions/workflows/build.yml/badge.svg" alt="build"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="license: MIT"></a>
   <img src="https://img.shields.io/badge/language-C11-lightgrey.svg" alt="C11">
-  <img src="https://img.shields.io/badge/wlroots-0.18-5b8def.svg" alt="wlroots 0.18">
+  <img src="https://img.shields.io/badge/wlroots-0.20-5b8def.svg" alt="wlroots 0.20">
 </p>
 
 <p align="center">
@@ -43,7 +43,10 @@ save it.
 - **One theme for the whole desktop** – the same file also colors your bar, launcher,
   terminal, notifications and lock screen through
   [templates](docs/THEMES.md#one-theme-for-the-whole-desktop-templating).
-- **Animations** – fade/slide on open, close and move; adjustable duration and easing; one switch
+- **Animations, Hyprland style** – popin, slide and slidefade on open and close, workspace slides,
+  a border color fade, your own Bézier curves, `animation = ...` lines that mostly work as in a
+  Hyprland config, or a ready-made `preset = hyprland`; Wayfire style **fire** (windows burn
+  away with flames), **squeeze** (TV off) and **zoom**; one switch
   turns them all off.
 - **Workspaces** (1–9), **layer-shell** bars/wallpapers/launchers (waybar, swaybg, fuzzel, ...),
   **screen lock** (swaylock), idle (swayidle), taskbars, clipboard managers, screenshots (grim).
@@ -78,7 +81,7 @@ Dependencies (Debian/Ubuntu names; check your distribution):
 |---|---|
 | tools | `meson ninja-build pkg-config gcc git` (meson ≥ 1.4 when wlroots is built from the wrap) |
 | libraries | `libwayland-dev wayland-protocols libxkbcommon-dev libcairo2-dev libpango1.0-dev libfontconfig-dev libpixman-1-dev libdrm-dev` |
-| wlroots 0.18 | `libwlroots-0.18-dev` if your distribution has it, otherwise meson builds it from `subprojects/wlroots.wrap` (needs network and `libinput-dev libudev-dev libseat-dev libegl-dev libgles-dev libgbm-dev libvulkan-dev glslang-tools hwdata libdisplay-info-dev libliftoff-dev` plus the xcb development packages, see [the CI setup](.github/workflows/build.yml)) |
+| wlroots 0.20 | `libwlroots-0.20-dev` if your distribution has it, otherwise meson builds it from `subprojects/wlroots.wrap`, together with the newer wayland (≥ 1.24) and xkbcommon (≥ 1.8) it needs, and libdrm/pixman if yours are too old (needs network, `bison flex`, and `libinput-dev libudev-dev libseat-dev libegl-dev libgles-dev libgbm-dev libvulkan-dev glslang-tools hwdata libdisplay-info-dev libliftoff-dev` plus the xcb development packages, see [the CI setup](.github/workflows/build.yml)) |
 
 ```sh
 meson setup build

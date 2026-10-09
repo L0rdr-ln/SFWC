@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Starts sfwc on the headless backend, runs the test client against it and checks the
 # compositor's log and side effects.
-# Usage: run_client_test.sh <sfwc> <client_test> [single|multi|nested|deco|anim|layers|workspaces|lock|plugins|wobbly]
+# Usage: run_client_test.sh <sfwc> <client_test> [single|multi|nested|deco|anim|layers|workspaces|lock|hypr|fx|plugins|wobbly]
 #   single: one output, input, snapping, live config reload, autostart, terminal
 #   multi:  two outputs (different size/scale/position), follow-mouse, output actions,
 #           reload-config key (config file watching is switched off)
@@ -74,6 +74,59 @@ load = wobbly
 [plugin:wobbly]
 spring = 4
 friction = 4
+CONF
+    ;;
+fx)
+    # Wayfire style effects (squeeze, fire, zoom) with slow linear curves (2 s)
+    unset SFWC_NO_ANIMATIONS
+    cat >"$SFWC_CONFIG" <<'CONF'
+[animations]
+bezier = lin, 0, 0, 1, 1
+animation = windowsIn, 1, 20, lin, squeeze
+animation = windowsOut, 1, 20, lin, squeeze
+animation = fade, 0
+animation = border, 0
+CONF
+    ;;
+hypr)
+    # Hyprland style rules with slow linear curves (2 s) so that the checks are not timing sensitive.
+    unset SFWC_NO_ANIMATIONS
+    mkdir -p "$TMP/themes"
+    cat >"$TMP/themes/test.theme" <<'THEME'
+format = 1
+name = Test
+[colors]
+background = #101010
+border_focused = #ff0000
+border_unfocused = #0000ff
+titlebar_focused = #00ff00
+titlebar_unfocused = #ffff00
+title_text = #ffffff
+close_button = #ff00ff
+maximize_button = #00ffff
+minimize_button = #ff8000
+[geometry]
+border_width = 4
+titlebar_height = 24
+corner_radius = 10
+button_size = 12
+button_spacing = 6
+[shadow]
+enabled = false
+[font]
+family = sans
+size = 10
+THEME
+    cat >"$SFWC_CONFIG" <<'CONF'
+[general]
+theme = test
+[animations]
+bezier = lin, 0, 0, 1, 1
+animation = windowsIn, 1, 20, lin, popin 50%
+animation = windowsOut, 1, 20, lin, popin 50%
+animation = fade, 0
+animation = workspaces, 1, 20, lin, slide
+animation = border, 0
 CONF
     ;;
 anim)
@@ -236,6 +289,12 @@ plugins)
 wobbly)
     grep -q "plugin wobbly loaded" "$LOG" || fail "the wobbly plugin was not loaded"
     grep -q "plugin wobbly: swinging from 48,48 to 348,48" "$LOG" || fail "the window never started to wobble"
+    ;;
+fx)
+    grep -q "window unmapped" "$LOG" || fail "no window was ever closed"
+    ;;
+hypr)
+    grep -q "workspace 2" "$LOG" || fail "the compositor never switched workspace"
     ;;
 anim)
     grep -q "window mapped.*animated" "$LOG" || fail "window was never mapped"

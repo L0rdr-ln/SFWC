@@ -7,7 +7,7 @@
 struct wlr_box toplevel_geometry(struct toplevel *t)
 {
     struct wlr_box geo = {0};
-    wlr_xdg_surface_get_geometry(t->xdg_toplevel->base, &geo);
+    geo = t->xdg_toplevel->base->geometry; /* wlroots 0.20: kept up to date on commit */
     geo.x += t->scene_tree->node.x;
     geo.y += t->scene_tree->node.y;
     return geo;
@@ -16,19 +16,16 @@ struct wlr_box toplevel_geometry(struct toplevel *t)
 /* Move the window (content top-left to x, y), with a tween when `animate` is set. */
 void toplevel_move_to_ex(struct toplevel *t, int x, int y, bool animate)
 {
-    struct server *server = t->server;
     animations_cancel(t, true);
     struct wlr_box geo = {0};
-    wlr_xdg_surface_get_geometry(t->xdg_toplevel->base, &geo);
+    geo = t->xdg_toplevel->base->geometry; /* wlroots 0.20: kept up to date on commit */
     int nx = x - geo.x, ny = y - geo.y;
-    if (animate && t->mapped && server->config.anim_move && animations_enabled(server) &&
-        server->config.anim_duration_ms > 0 &&
-        (abs(nx - t->scene_tree->node.x) > 2 || abs(ny - t->scene_tree->node.y) > 2)) {
-        animation_start(server, ANIM_MOVE, t, t->scene_tree, t->scene_tree->node.x,
-                        t->scene_tree->node.y, nx, ny, 1, 1);
-    } else {
-        wlr_scene_node_set_position(&t->scene_tree->node, nx, ny);
+    if (animate && t->mapped &&
+        (abs(nx - t->scene_tree->node.x) > 2 || abs(ny - t->scene_tree->node.y) > 2) &&
+        animate_move(t, t->scene_tree->node.x, t->scene_tree->node.y, nx, ny)) {
+        return;
     }
+    wlr_scene_node_set_position(&t->scene_tree->node, nx, ny);
 }
 
 static void toplevel_move_to(struct toplevel *t, int x, int y)

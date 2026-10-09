@@ -8,8 +8,8 @@ are roughly in build order; check them off as they land.
 - [x] Vendor inih (r58, `third_party/inih`); comment rules: full-line only
 - [x] Parser tests (`meson test`) covering the shipped config and themes
 - [x] ASan/UBSan builds documented (CONTRIBUTING) and used in CI
-- [x] CI fails on errors; wlroots 0.18 comes from `subprojects/wlroots.wrap`
-- [x] `src/main.c` compiles against wlroots 0.18.2 (built from the wraps) in CI, with ASan/UBSan
+- [x] CI fails on errors; wlroots comes from `subprojects/wlroots.wrap` (0.20.0)
+- [x] the compositor builds against wlroots 0.20.0 (built from the wraps) in CI, with ASan/UBSan
 
 ## M1 – A window on screen  *(done; tested in CI headless and nested)*
 - [x] Server struct, signal handling (SIGINT/SIGTERM), clean shutdown
@@ -78,7 +78,8 @@ are roughly in build order; check them off as they land.
 - [x] `ext-session-lock`
 - [x] `wlr-foreign-toplevel-management` (taskbar)
 - [x] Workspaces: `workspace:N` / `move-to-workspace:N`, per-window workspace
-- [ ] Workspace-switch animation, `ext-workspace` protocol (needs a hand-written implementation)
+- [x] Workspace-switch animation (slide, slidevert, slidefade, fade)
+- [ ] `ext-workspace` protocol (wlroots 0.20 has it; needs the 0.20 branch)
 - [x] Screenshots / screen capture (screencopy), clipboard, primary selection, data-control
 
 ## M6 – Themes and templating  *(separate `sfwc-themes` package)*

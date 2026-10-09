@@ -79,6 +79,7 @@ static void layer_surface_map(struct wl_listener *listener, void *data)
     if (o) {
         arrange_layers(o);
     }
+    animate_layer_open(ls->server, ls->scene->tree);
 }
 
 static void layer_surface_unmap(struct wl_listener *listener, void *data)
@@ -86,6 +87,7 @@ static void layer_surface_unmap(struct wl_listener *listener, void *data)
     struct layer_surface *ls = wl_container_of(listener, ls, unmap);
     struct server *server = ls->server;
     wlr_log(WLR_INFO, "layer surface unmapped: namespace=%s", ls->layer->namespace);
+    animations_cancel_tree(server, ls->scene->tree);
     if (server->seat->keyboard_state.focused_surface == ls->layer->surface) {
         struct toplevel *next = top_visible(server);
         if (next) {
