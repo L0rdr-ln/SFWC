@@ -88,6 +88,8 @@ fx)
     # Wayfire style effects (squeeze, fire, zoom) with slow linear curves (2 s)
     unset SFWC_NO_ANIMATIONS
     cat >"$SFWC_CONFIG" <<'CONF'
+[plugins]
+load = animations
 [animations]
 bezier = lin, 0, 0, 1, 1
 animation = windowsIn, 1, 20, lin, squeeze
@@ -126,6 +128,8 @@ family = sans
 size = 10
 THEME
     cat >"$SFWC_CONFIG" <<'CONF'
+[plugins]
+load = animations
 [general]
 theme = test
 [animations]
@@ -138,8 +142,12 @@ animation = border, 0
 CONF
     ;;
 anim)
+    # needs the animations plugin of the sfwc-plugins repository (SFWC_PLUGIN_PATH points at it);
+    # run by that repository's CI, like hypr, fx and wobbly
     unset SFWC_NO_ANIMATIONS
     cat >"$SFWC_CONFIG" <<'CONF'
+[plugins]
+load = animations
 [animations]
 enabled = true
 open = fade

@@ -763,6 +763,9 @@ static void write_config(const char *path, const char *text)
     if (!f) {
         fail("cannot write the new config");
     }
+    if (strstr(text, "[animations]") && !strstr(text, "[plugins]")) {
+        fputs("[plugins]\nload = animations\n", f); /* the animation scenarios need the animations plugin */
+    }
     fputs(text, f);
     fclose(f);
     if (rename(tmp, path) != 0) {

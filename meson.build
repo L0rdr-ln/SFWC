@@ -122,6 +122,13 @@ if get_option('compositor')
     export_dynamic: false,
     install: true)
 
+  # What a plugin built together with the compositor (as a meson subproject) depends on; the
+  # installed sfwc-plugin.pc does the same for plugins built later.
+  sfwc_plugin_dep = declare_dependency(
+    include_directories: include_directories('include'),
+    dependencies: wlroots)
+  meson.override_dependency('sfwc-plugin', sfwc_plugin_dep)
+
   subdir('plugins')
 
   install_data('config/sfwc.conf', install_dir: get_option('datadir') / 'sfwc')
