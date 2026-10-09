@@ -127,6 +127,7 @@ struct server {
     struct wl_listener active_constraint_destroy;
     double constraint_ox, constraint_oy; /* layout position of the constrained surface */
     struct wl_list keyboards;
+    struct wl_list pointer_devs; /* libinput devices, see pointer_config.c */
     /* Virtual input (tests only, SFWC_ENABLE_VIRTUAL_INPUT=1): any client could
      * otherwise inject keystrokes. */
     struct wlr_virtual_pointer_manager_v1 *virtual_pointer_mgr;
@@ -298,6 +299,8 @@ void plugins_finish(struct server *server);
 /* protocols.c */
 void protocols_init(struct server *server);
 void protocols_finish(struct server *server);
+void pointer_config_add(struct server *server, struct wlr_input_device *device);
+void pointer_config_reload(struct server *server);
 void constraints_init(struct server *server);
 void constraints_finish(struct server *server);
 /* Called with the surface under the pointer (NULL if none) and its origin in layout coordinates. */

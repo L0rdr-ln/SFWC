@@ -68,6 +68,21 @@ struct output_cfg {
     bool enabled;
 };
 
+/* [input] (every pointing device) and [input:touchpad] (on top of it, for touchpads). A tri-state
+ * is -1 = leave what the device does by default, 0 = off, 1 = on; an empty string likewise. */
+struct input_cfg {
+    int tap, tap_drag, natural_scroll, disable_while_typing, middle_emulation, left_handed;
+    bool has_accel;
+    double accel_speed;       /* -1 .. 1 */
+    char accel_profile[12];   /* adaptive | flat */
+    char click_method[16];    /* button-areas | clickfinger */
+    char scroll_method[20];   /* two-finger | edge | on-button-down | none */
+    char tap_button_map[4];   /* lrm | lmr */
+};
+void input_cfg_init(struct input_cfg *c);
+/* out = base with every setting that `over` makes replaced. */
+void input_cfg_merge(struct input_cfg *out, const struct input_cfg *base, const struct input_cfg *over);
+
 struct config {
     /* [general] */
     char *theme;
@@ -81,6 +96,7 @@ struct config {
     bool decorations; /* draw title bars/borders for clients that agree to server-side decorations */
     int snap_distance;
     int gap;
+    struct input_cfg input, touchpad;
     /* [keyboard]; NULL strings mean the xkb default */
     char *kb_rules, *kb_model, *kb_layout, *kb_variant, *kb_options;
     int repeat_rate;  /* characters per second, 0 = no repeat */

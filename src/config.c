@@ -122,9 +122,41 @@ static void clear_autostart(struct config *c)
 static void install_default_keybinds(struct config *c);
 static void install_default_mousebinds(struct config *c);
 
+void input_cfg_init(struct input_cfg *c)
+{
+    memset(c, 0, sizeof *c);
+    c->tap = c->tap_drag = c->natural_scroll = c->disable_while_typing = c->middle_emulation =
+        c->left_handed = -1;
+}
+
+void input_cfg_merge(struct input_cfg *out, const struct input_cfg *base, const struct input_cfg *over)
+{
+    *out = *base;
+#define MERGE_TRI(f) if (over->f >= 0) out->f = over->f
+    MERGE_TRI(tap);
+    MERGE_TRI(tap_drag);
+    MERGE_TRI(natural_scroll);
+    MERGE_TRI(disable_while_typing);
+    MERGE_TRI(middle_emulation);
+    MERGE_TRI(left_handed);
+#undef MERGE_TRI
+    if (over->has_accel) {
+        out->has_accel = true;
+        out->accel_speed = over->accel_speed;
+    }
+#define MERGE_STR(f) if (over->f[0]) memcpy(out->f, over->f, sizeof out->f)
+    MERGE_STR(accel_profile);
+    MERGE_STR(click_method);
+    MERGE_STR(scroll_method);
+    MERGE_STR(tap_button_map);
+#undef MERGE_STR
+}
+
 void config_init_defaults(struct config *c)
 {
     memset(c, 0, sizeof *c);
+    input_cfg_init(&c->input);
+    input_cfg_init(&c->touchpad);
     const char *term = getenv("SFWC_TERMINAL");
     c->theme = xstrdup("default");
     c->terminal = xstrdup(term && *term ? term : "foot");
@@ -574,6 +606,58 @@ static void set_string(char **dst, const char *v)
     *dst = *v ? xstrdup(v) : NULL; /* empty value = xkb default */
 }
 
+static const char *const accel_profile_values[] = {"adaptive", "flat", NULL};
+static const char *const click_method_values[] = {"button-areas", "clickfinger", NULL};
+static const char *const scroll_method_values[] = {"two-finger", "edge", "on-button-down", "none", NULL};
+static const char *const tap_map_values[] = {"lrm", "lmr", NULL};
+
+static void set_tristate(struct loader *l, const char *key, const char *v, int *out)
+{
+    bool b;
+    if (parse_bool(v, &b)) {
+        *out = b;
+    } else {
+        report(l, CONFIG_ERROR, "%s: '%s' is not a boolean (use true/false)", key, v);
+    }
+}
+
+static void handle_input(struct loader *l, struct input_cfg *c, const char *section, const char *key,
+                         const char *v)
+{
+    if (!strcmp(key, "tap")) {
+        set_tristate(l, key, v, &c->tap);
+    } else if (!strcmp(key, "tap_drag")) {
+        set_tristate(l, key, v, &c->tap_drag);
+    } else if (!strcmp(key, "natural_scroll")) {
+        set_tristate(l, key, v, &c->natural_scroll);
+    } else if (!strcmp(key, "disable_while_typing")) {
+        set_tristate(l, key, v, &c->disable_while_typing);
+    } else if (!strcmp(key, "middle_emulation")) {
+        set_tristate(l, key, v, &c->middle_emulation);
+    } else if (!strcmp(key, "left_handed")) {
+        set_tristate(l, key, v, &c->left_handed);
+    } else if (!strcmp(key, "accel_speed")) {
+        char *end;
+        double d = strtod(v, &end);
+        if (end == v || *end != '\0' || !(d >= -1.0 && d <= 1.0)) {
+            report(l, CONFIG_ERROR, "accel_speed: '%s' is not a number between -1 and 1", v);
+        } else {
+            c->has_accel = true;
+            c->accel_speed = d;
+        }
+    } else if (!strcmp(key, "accel_profile")) {
+        set_choice(l, key, v, accel_profile_values, c->accel_profile, sizeof c->accel_profile);
+    } else if (!strcmp(key, "click_method")) {
+        set_choice(l, key, v, click_method_values, c->click_method, sizeof c->click_method);
+    } else if (!strcmp(key, "scroll_method")) {
+        set_choice(l, key, v, scroll_method_values, c->scroll_method, sizeof c->scroll_method);
+    } else if (!strcmp(key, "tap_button_map")) {
+        set_choice(l, key, v, tap_map_values, c->tap_button_map, sizeof c->tap_button_map);
+    } else {
+        report(l, CONFIG_WARNING, "unknown key '%s' in [%s]", key, section);
+    }
+}
+
 static void handle_keyboard(struct loader *l, const char *key, const char *v)
 {
     struct config *c = l->c;
@@ -696,6 +780,10 @@ static int config_ini_cb(void *user, const char *section, const char *name, cons
         handle_plugin_section(l, "animations", name, value); /* read by the animations plugin */
     } else if (!strcmp(section, "keyboard")) {
         handle_keyboard(l, name, value);
+    } else if (!strcmp(section, "input")) {
+        handle_input(l, &l->c->input, section, name, value);
+    } else if (!strcmp(section, "input:touchpad")) {
+        handle_input(l, &l->c->touchpad, section, name, value);
     } else if (!strncmp(section, "output:", 7)) {
         handle_output(l, section + 7, name, value);
     } else if (!strcmp(section, "plugins")) {

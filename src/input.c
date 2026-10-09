@@ -142,6 +142,7 @@ static void server_new_keyboard(struct server *server, struct wlr_keyboard *wlr_
 static void server_new_pointer(struct server *server, struct wlr_input_device *device)
 {
     wlr_cursor_attach_input_device(server->cursor, device);
+    pointer_config_add(server, device);
 }
 
 void server_new_input(struct wl_listener *listener, void *data)

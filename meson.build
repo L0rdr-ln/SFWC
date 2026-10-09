@@ -83,6 +83,7 @@ if get_option('compositor')
     default_options: ['examples=false', 'default_library=shared'])
   wayland_server = dependency('wayland-server')
   libdrm = dependency('libdrm')
+  libinput = dependency('libinput', version: '>=1.14')
 
   # The wlroots protocol XML files: in the wlroots subproject, which lives in our own subprojects
   # directory or, when sfwc is itself a subproject of a plugin repository, in the top level one.
@@ -133,7 +134,7 @@ if get_option('compositor')
   sfwc_sources = files(
     'src/main.c', 'src/settings.c', 'src/window.c', 'src/workspace.c',
     'src/decoration.c', 'src/output.c', 'src/input.c', 'src/actions.c', 'src/cursor.c',
-    'src/layers.c', 'src/lock.c', 'src/foreign.c', 'src/idle.c', 'src/plugin.c', 'src/protocols.c')
+    'src/layers.c', 'src/lock.c', 'src/foreign.c', 'src/idle.c', 'src/plugin.c', 'src/protocols.c', 'src/pointer_config.c')
 
   # Plugins are loaded from <prefix>/<libdir>/sfwc/plugins (and the user's and $SFWC_PLUGIN_PATH).
   plugin_dir = get_option('prefix') / get_option('libdir') / 'sfwc' / 'plugins'
@@ -141,7 +142,7 @@ if get_option('compositor')
 
   sfwc_exe = executable('sfwc',
     sfwc_sources, xdg_shell_h, layer_shell_h, session_lock_h, proto_headers,
-    dependencies: [wlroots, wayland_server, xkbcommon, libm, libdrm, libdl, config_dep, theme_dep, template_dep, deco_dep],
+    dependencies: [wlroots, wayland_server, xkbcommon, libm, libdrm, libinput, libdl, config_dep, theme_dep, template_dep, deco_dep],
     include_directories: include_directories('include'),
     c_args: ['-Wno-unused-parameter', '-DSFWC_PLUGIN_DIR="' + plugin_dir + '"'],
     export_dynamic: false,

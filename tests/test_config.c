@@ -202,6 +202,47 @@ static void test_values_and_hash_colors(void)
     config_finish(&c);
 }
 
+static void test_input(void)
+{
+    struct config c;
+    struct log l = {0};
+    config_init_defaults(&c);
+    CHECK(c.input.tap == -1 && c.input.natural_scroll == -1 && !c.input.has_accel &&
+          !c.input.accel_profile[0] && c.touchpad.tap == -1);
+    CHECK(config_load_string(&c,
+                             "[input]\n"                    /* 1 */
+                             "accel_speed = -0.5\n"         /* 2 */
+                             "accel_profile = flat\n"       /* 3 */
+                             "left_handed = true\n"         /* 4 */
+                             "tap = maybe\n"                /* 5 bad */
+                             "accel_speed = 3\n"            /* 6 bad, keeps -0.5 */
+                             "scroll_method = sideways\n"   /* 7 bad */
+                             "speed = 1\n"                  /* 8 unknown */
+                             "[input:touchpad]\n"           /* 9 */
+                             "tap = yes\n"
+                             "natural_scroll = on\n"
+                             "disable_while_typing = false\n"
+                             "click_method = clickfinger\n"
+                             "scroll_method = two-finger\n"
+                             "tap_button_map = lmr\n",
+                             collect, &l));
+    CHECK(c.input.has_accel && c.input.accel_speed == -0.5 && !strcmp(c.input.accel_profile, "flat"));
+    CHECK(c.input.left_handed == 1 && c.input.tap == -1 && !c.input.scroll_method[0]);
+    CHECK(has_msg(&l, CONFIG_ERROR, 5, "tap"));
+    CHECK(has_msg(&l, CONFIG_ERROR, 6, "accel_speed"));
+    CHECK(has_msg(&l, CONFIG_ERROR, 7, "scroll_method"));
+    CHECK(has_msg(&l, CONFIG_WARNING, 8, "unknown key 'speed' in [input]"));
+    CHECK(c.touchpad.tap == 1 && c.touchpad.natural_scroll == 1 && c.touchpad.disable_while_typing == 0);
+    CHECK(!strcmp(c.touchpad.click_method, "clickfinger") && !strcmp(c.touchpad.scroll_method, "two-finger") &&
+          !strcmp(c.touchpad.tap_button_map, "lmr") && !c.touchpad.has_accel);
+    struct input_cfg m;
+    input_cfg_merge(&m, &c.input, &c.touchpad);
+    CHECK(m.tap == 1 && m.left_handed == 1 && m.natural_scroll == 1 && m.disable_while_typing == 0);
+    CHECK(m.has_accel && m.accel_speed == -0.5 && !strcmp(m.accel_profile, "flat"));
+    CHECK(!strcmp(m.click_method, "clickfinger") && !strcmp(m.tap_button_map, "lmr"));
+    config_finish(&c);
+}
+
 static void test_keyboard_and_outputs(void)
 {
     struct config c;
@@ -383,6 +424,7 @@ int main(void)
     test_mod_rebuilds_defaults();
     test_values_and_hash_colors();
     test_keyboard_and_outputs();
+    test_input();
     test_expand();
     test_plugins();
     test_missing_file();

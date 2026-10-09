@@ -36,6 +36,21 @@ still applies. The file is re-read when it is saved (or with the reload-config a
 (xkb names),
 .B repeat_rate, repeat_delay.
 .TP
+.B [input], [input:touchpad]
+libinput settings of pointing devices (the second adds to the first, for touchpads only):
+.B tap, tap_drag, natural_scroll, disable_while_typing, middle_emulation, left_handed
+(true/false),
+.B accel_speed
+(-1 to 1),
+.B accel_profile
+(adaptive, flat),
+.B click_method
+(button-areas, clickfinger),
+.B scroll_method
+(two-finger, edge, on-button-down, none),
+.B tap_button_map
+(lrm, lmr). A setting that is left out keeps the device's default.
+.TP
 .B [output:NAME]
 .B scale, position
 (x,y),

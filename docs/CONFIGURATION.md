@@ -88,6 +88,33 @@ left to right) are applied on start and on reload. `enabled = false` switches an
 output's *logical* size, i.e. the mode divided by the scale. New windows open on the output
 under the pointer. Clients can read the layout through `xdg-output`.
 
+## Mouse and touchpad settings (libinput)
+
+`[input]` applies to every pointing device that libinput drives, `[input:touchpad]` adds to it for
+touchpads (a device is a touchpad if it can tap). Every key is optional; a key that is left out
+keeps what the device does by default. The settings are applied when a device appears and again
+when the config is reloaded. A setting a device does not support is ignored.
+
+| key | values |
+|---|---|
+| `tap`, `tap_drag` | `true` / `false` |
+| `natural_scroll` | `true` / `false` |
+| `disable_while_typing` | `true` / `false` |
+| `middle_emulation`, `left_handed` | `true` / `false` |
+| `accel_speed` | -1 to 1 |
+| `accel_profile` | `adaptive`, `flat` |
+| `click_method` | `button-areas`, `clickfinger` |
+| `scroll_method` | `two-finger`, `edge`, `on-button-down`, `none` |
+| `tap_button_map` | `lrm`, `lmr` |
+
+```ini
+[input]
+accel_profile = flat
+[input:touchpad]
+tap = true
+natural_scroll = true
+```
+
 ## Mouse
 
 ```ini

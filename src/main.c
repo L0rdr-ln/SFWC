@@ -165,6 +165,7 @@ int main(int argc, char *argv[])
     wl_signal_add(&server.cursor->events.frame, &server.cursor_frame);
 
     wl_list_init(&server.keyboards);
+    wl_list_init(&server.pointer_devs);
     server.new_input.notify = server_new_input;
     wl_signal_add(&server.backend->events.new_input, &server.new_input);
     server.seat = wlr_seat_create(server.display, "seat0");

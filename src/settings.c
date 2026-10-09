@@ -193,6 +193,7 @@ void reload_config(struct server *server)
     wl_list_for_each(kb, &server->keyboards, link) {
         apply_keyboard_config(server, kb, !kb->is_virtual);
     }
+    pointer_config_reload(server);
     /* scale and position of outputs that are already running */
     struct output *out;
     wl_list_for_each(out, &server->outputs, link) {
