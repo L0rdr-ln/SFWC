@@ -2095,6 +2095,8 @@ static void run_constraints(struct app *app, struct wl_display *d, struct win *a
         app->constraints, a->surface, app->pointer, region, ZWP_POINTER_CONSTRAINTS_V1_LIFETIME_PERSISTENT);
     zwp_confined_pointer_v1_add_listener(conf, &confined_listener, app);
     wl_region_destroy(region);
+    wl_surface_commit(a->surface); /* the region is double buffered: it applies on commit */
+    wl_display_roundtrip(d);
     vptr_move(app, d, 48 + 30, 48 + 30);
     wl_display_roundtrip(d);
     if (app->constraint_on != 1) {
