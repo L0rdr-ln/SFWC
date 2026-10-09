@@ -216,6 +216,7 @@ void reload_config(struct server *server)
     }
 
     load_theme(server);
+    plugins_reload(server);
     workspace_clamp(server);
     wl_list_for_each(out, &server->outputs, link) {
         arrange_layers(out); /* output positions may have changed */

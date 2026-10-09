@@ -144,3 +144,17 @@ the lock client gets keyboard and pointer, and all keybinds except `quit` are of
 that crashes leaves the session locked), `ext-idle-notify` and idle inhibit (swayidle),
 `wlr-foreign-toplevel-management` (taskbars), primary selection, `wlr-data-control` (clipboard
 managers) and `wlr-screencopy` (grim).
+
+## [plugins] and [plugin:NAME]
+
+```ini
+[plugins]
+load = wobbly        # one line per plugin; NAME.so is searched in $SFWC_PLUGIN_PATH,
+                     # ~/.local/share/sfwc/plugins and the install directory
+
+[plugin:wobbly]      # the keys belong to the plugin; see docs/PLUGINS.md
+spring = 120
+```
+
+Names are 1 to 32 characters of `a-z 0-9 _ -`. A plugin that cannot be loaded is logged and
+skipped. Plugins are loaded and unloaded live when the config is reloaded.

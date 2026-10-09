@@ -1437,6 +1437,85 @@ static void run_anim(struct app *app, struct wl_display *d)
 #define C_BAR 0xaa5500
 #define C_OVERLAY 0x00aa55
 
+/* ---------------------------------------------- scenario: wobbly windows */
+static int count_client(const struct image *img, int x0, int y0, int x1, int y1)
+{
+    int n = 0;
+    for (int y = y0; y < y1; y++) {
+        for (int x = x0; x < x1; x++) {
+            n += (img->px[(size_t)y * img->w + x] & 0xffffff) == C_CLIENT;
+        }
+    }
+    return n;
+}
+
+static void run_wobbly(struct app *app, struct wl_display *d)
+{
+    app->ext_w = app->out_w;
+    app->ext_h = app->out_h;
+    setup_virtual_devices(app, d, 0);
+    int p = 48; /* the first window opens at the cascade start */
+    struct win a;
+    win_open_ex(app, d, &a, "wobble", 0xff000000u | C_CLIENT, 0, 1);
+    wait_for(d, &app->kb_enter, 3000, "keyboard focus for the window");
+    sleep_ms(300);
+    struct image img = capture_screen(app, d);
+    expect_px(&img, p + 100, p + 50, C_CLIENT, "wobbly: the window is where it opened");
+    free(img.px);
+
+    /* grab the window in the middle and throw it 300 px to the right. A rigid window would jump;
+     * the mesh lags: half a second later pixels of the window are still between the old right
+     * edge and the new left edge. */
+    double gx = p + 100, gy = p + 50;
+    vptr_move(app, d, gx, gy);
+    alt_drag(app, d, BTN_LEFT, gx, gy, gx + 300, gy);
+    sleep_ms(500);
+    img = capture_screen(app, d);
+    int lag = count_client(&img, p + 205, p + 4, p + 290, p + 96);
+    int at_old = count_client(&img, p, p, p + 200, p + 100);
+    int at_new = count_client(&img, p + 300, p, p + 500, p + 100);
+    char profile[600] = "";
+    for (int x = 0; x < 640; x += 20) { /* window pixels per 20 px wide column, whole screen height */
+        size_t n = strlen(profile);
+        snprintf(profile + n, sizeof profile - n, " %d", count_client(&img, x, 0, x + 20, img.h));
+    }
+    free(img.px);
+    if (lag < 100) {
+        fprintf(stderr, "wobbly: window pixels per 20 px column from x=0:%s\n", profile);
+        char msg[200];
+        snprintf(msg, sizeof msg,
+                 "wobbly: only %d window pixels trail between the old and the new place (old place %d, new place %d)",
+                 lag, at_old, at_new);
+        fail(msg);
+    }
+
+    /* it settles: the old place is empty, the window rigid at the new one */
+    sleep_ms(6000);
+    img = capture_screen(app, d);
+    expect_px(&img, p + 300 + 100, p + 50, C_CLIENT, "wobbly: the window arrived");
+    expect_px(&img, p + 300 + 4, p + 4, C_CLIENT, "wobbly: ... with its corner");
+    expect_px(&img, p + 100, p + 50, 0x000000, "wobbly: the old place is empty");
+    free(img.px);
+    win_destroy(d, &a);
+}
+
+/* ---------------------------------------------- scenario: plugins */
+static void run_plugins(struct app *app, struct wl_display *d)
+{
+    app->ext_w = app->out_w;
+    app->ext_h = app->out_h;
+    setup_virtual_devices(app, d, 0);
+    struct win a;
+    win_open_ex(app, d, &a, "plugin-window", 0xff000000u | C_CLIENT, 0, 1);
+    wait_for(d, &app->kb_enter, 3000, "keyboard focus for the window");
+    sleep_ms(300); /* a few frames, so that the plugin sees the window */
+    struct image img = capture_screen(app, d);
+    expect_px(&img, 48 + 100, 48 + 50, C_CLIENT, "plugins: the window is drawn");
+    free(img.px);
+    win_destroy(d, &a);
+    sleep_ms(200);
+}
+
 /* -------------------------------------------------- scenario: workspaces */
 
 #define C_OTHER 0xc03050
@@ -1797,8 +1876,11 @@ int main(int argc, char **argv)
     int layers = !strcmp(mode, "layers");
     int workspaces = !strcmp(mode, "workspaces");
     int lock = !strcmp(mode, "lock");
-    if (!multi && !deco && !anim && !layers && !workspaces && !lock && strcmp(mode, "single") != 0) {
-        fail("unknown mode (use single, multi, deco, anim, layers, workspaces or lock)");
+    int plugins = !strcmp(mode, "plugins");
+    int wobbly = !strcmp(mode, "wobbly");
+    if (!multi && !deco && !anim && !layers && !workspaces && !lock && !plugins && !wobbly &&
+        strcmp(mode, "single") != 0) {
+        fail("unknown mode (use single, multi, deco, anim, layers, workspaces, lock, plugins or wobbly)");
     }
 
     struct app app = {0};
@@ -1855,6 +1937,20 @@ int main(int argc, char **argv)
 #endif
     }
 
+    if (plugins || wobbly) {
+#ifdef HAVE_VIRTUAL_INPUT
+        if (plugins) {
+            run_plugins(&app, display);
+        } else {
+            run_wobbly(&app, display);
+        }
+        wl_display_disconnect(display);
+        printf("client_test %s: OK\n", mode);
+        return 0;
+#else
+        fail("the plugin scenarios need the wlroots protocol files");
+#endif
+    }
     if (lock) {
 #ifdef HAVE_VIRTUAL_INPUT
         run_lock(&app, display);

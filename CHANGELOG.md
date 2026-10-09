@@ -3,6 +3,22 @@
 Versions follow the roadmap milestones while the project is pre-1.0:
 `0.<milestone>.0` (v0.2.0 = M2). Dates are UTC.
 
+## Unreleased
+
+### Added
+- Plugin API (`include/sfwc-plugin.h`, docs/PLUGINS.md): `[plugins] load = NAME` loads
+  `NAME.so` from `$SFWC_PLUGIN_PATH`, the user's data directory or the install directory;
+  `[plugin:NAME]` sections hold the plugin's settings. Plugins get a frame callback, a view of the
+  windows, settings, and are loaded, reconfigured and unloaded live on config reload. Missing,
+  refusing, wrong-version or wrong-wlroots plugins are logged and skipped. `sfwc-plugin.pc` and the
+  header are installed for plugins in other repositories.
+- First plugin: `wobbly` (windows wobble on a spring mesh when moved).
+- Tests: `[plugins]`/`[plugin:NAME]` parsing, the wobbly mesh, and end-to-end scenarios for the
+  plugin API (`compositor-client-plugins`, with a test plugin) and for wobbly windows.
+
+### Changed
+- wlroots is built as a shared library (plugins must share the compositor's copy).
+
 ## v0.6.0 – 2026-10-09 – M3 to M7: configuration, look and feel, desktop integration, theme templating
 
 Everything since v0.2.0. Builds against wlroots 0.18.2. (The wlroots 0.20 port, the Hyprland and

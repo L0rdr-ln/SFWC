@@ -145,6 +145,7 @@ struct server {
     struct config config;
     struct theme theme;
     struct wl_list animations; /* struct animation */
+    struct wl_list plugins;    /* struct plugin_inst (plugin.c) */
     /* z-order, bottom to top: background, bottom, windows, top, overlay */
     struct wlr_scene_tree *layer_trees[4];
     struct wlr_scene_tree *windows_tree;
@@ -286,11 +287,18 @@ struct animation *animation_start(struct server *server, enum anim_kind kind, st
                                   double to_x, double to_y, double from_opacity,
                                   double to_opacity);
 void animations_tick(struct server *server);
+bool animations_busy(struct toplevel *t);
 void animations_cancel(struct toplevel *t, bool finish);
 void animate_open(struct toplevel *t);
 void snapshot_refresh(struct toplevel *t);
 void animate_close(struct toplevel *t);
 uint32_t now_msec(void);
+
+/* plugin.c */
+void plugins_reload(struct server *server);
+void plugins_frame(struct server *server, uint32_t now);
+void plugins_toplevel_unmap(struct toplevel *t);
+void plugins_finish(struct server *server);
 
 /* window.c */
 struct wlr_box toplevel_geometry(struct toplevel *t);

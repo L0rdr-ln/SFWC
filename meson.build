@@ -60,6 +60,12 @@ anim_dep = declare_dependency(
   link_with: anim_lib,
   include_directories: include_directories('src'))
 
+# The wobbly mesh (plugins/wobbly) has no wlroots dependency, so it is unit-tested everywhere.
+mesh_lib = static_library('sfwc_mesh', 'plugins/wobbly/mesh.c', dependencies: libm)
+mesh_dep = declare_dependency(
+  link_with: mesh_lib,
+  include_directories: include_directories('plugins/wobbly'))
+
 cairo = dependency('cairo')
 pangocairo = dependency('pangocairo')
 fontconfig = dependency('fontconfig')
@@ -74,8 +80,10 @@ deco_dep = declare_dependency(
 if get_option('compositor')
   # Uses the system wlroots 0.18 if present, otherwise builds it from
   # subprojects/wlroots.wrap.
+  # Shared, because plugins (shared objects loaded at run time) must use the compositor's copy
+  # of wlroots, not their own.
   wlroots = dependency('wlroots-0.18', fallback: ['wlroots', 'wlroots_dep'],
-    default_options: ['examples=false'])
+    default_options: ['examples=false', 'default_library=shared'])
   wayland_server = dependency('wayland-server')
   libdrm = dependency('libdrm')
 
@@ -103,19 +111,35 @@ if get_option('compositor')
   sfwc_sources = files(
     'src/main.c', 'src/settings.c', 'src/animate.c', 'src/window.c', 'src/workspace.c',
     'src/decoration.c', 'src/output.c', 'src/input.c', 'src/actions.c', 'src/cursor.c',
-    'src/layers.c', 'src/lock.c', 'src/foreign.c', 'src/idle.c')
+    'src/layers.c', 'src/lock.c', 'src/foreign.c', 'src/idle.c', 'src/plugin.c')
+
+  # Plugins are loaded from <prefix>/<libdir>/sfwc/plugins (and the user's and $SFWC_PLUGIN_PATH).
+  plugin_dir = get_option('prefix') / get_option('libdir') / 'sfwc' / 'plugins'
+  libdl = meson.get_compiler('c').find_library('dl', required: false)
 
   sfwc_exe = executable('sfwc',
     sfwc_sources, xdg_shell_h, layer_shell_h, session_lock_h,
-    dependencies: [wlroots, wayland_server, xkbcommon, libm, libdrm, config_dep, theme_dep, template_dep, deco_dep, anim_dep],
-    c_args: ['-Wno-unused-parameter'],
+    dependencies: [wlroots, wayland_server, xkbcommon, libm, libdrm, libdl, config_dep, theme_dep, template_dep, deco_dep, anim_dep],
+    include_directories: include_directories('include'),
+    c_args: ['-Wno-unused-parameter', '-DSFWC_PLUGIN_DIR="' + plugin_dir + '"'],
+    export_dynamic: false,
     install: true)
+
+  subdir('plugins')
 
   install_data('config/sfwc.conf', install_dir: get_option('datadir') / 'sfwc')
   install_data('data/sfwc.desktop', install_dir: get_option('datadir') / 'wayland-sessions')
   install_man('man/sfwc.1', 'man/sfwc.conf.5')
   install_data('README.md', 'CHANGELOG.md', 'docs/CONFIGURATION.md', 'docs/THEMES.md',
-    'docs/ARCHITECTURE.md', install_dir: get_option('datadir') / 'doc' / 'sfwc')
+    'docs/ARCHITECTURE.md', 'docs/PLUGINS.md', install_dir: get_option('datadir') / 'doc' / 'sfwc')
+  # For plugins that live in their own repositories: pkg-config --cflags sfwc-plugin
+  install_headers('include/sfwc-plugin.h', subdir: 'sfwc')
+  import('pkgconfig').generate(name: 'sfwc-plugin',
+    description: 'Header for writing sfwc plugins',
+    version: meson.project_version(),
+    requires: 'wlroots-0.18',
+    subdirs: 'sfwc',
+    variables: ['plugindir=' + plugin_dir])
 endif
 
 subdir('tests')

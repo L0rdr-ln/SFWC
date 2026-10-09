@@ -51,6 +51,13 @@ struct mousebind {
     enum action action;
 };
 
+/* [plugin:NAME]: free-form settings that only the plugin itself understands */
+struct plugin_cfg {
+    char *name;
+    char **keys, **values;
+    size_t n;
+};
+
 /* [output:NAME] */
 struct output_cfg {
     char *name;
@@ -77,7 +84,7 @@ struct config {
     char *kb_rules, *kb_model, *kb_layout, *kb_variant, *kb_options;
     int repeat_rate;  /* characters per second, 0 = no repeat */
     int repeat_delay; /* ms before repeating starts */
-    /* [output:NAME] */
+        /* [output:NAME] */
     struct output_cfg *outputs;
     size_t n_outputs;
     /* [animations] (parsed now, used from the animation milestone on) */
@@ -92,6 +99,11 @@ struct config {
     size_t n_mbinds;
     char **autostart;
     size_t n_autostart;
+    /* [plugins] load = NAME (loaded from the plugin search path) and the [plugin:NAME] sections */
+    char **plugins;
+    size_t n_plugins;
+    struct plugin_cfg *plugin_cfgs;
+    size_t n_plugin_cfgs;
     /* [templates]: render the theme's templates for the companion tools */
     bool templates_enabled;
     char **templates_off; /* names switched off individually (waybar = false) */
@@ -127,6 +139,11 @@ char *config_expand(const struct config *c, const char *in, const char *runtime_
 /* Config path: $SFWC_CONFIG, else $XDG_CONFIG_HOME/sfwc/sfwc.conf, else
  * ~/.config/sfwc/sfwc.conf, else NULL. Caller frees. */
 char *config_default_path(void);
+
+/* A plugin name is 1-32 characters of a-z, 0-9, '_' and '-': it becomes part of a file name. */
+bool config_valid_plugin_name(const char *name);
+/* The value of `key` in [plugin:NAME], or NULL. */
+const char *config_plugin_get(const struct config *c, const char *plugin, const char *key);
 
 const char *action_name(enum action a);
 

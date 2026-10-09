@@ -270,6 +270,7 @@ static void toplevel_unmap(struct wl_listener *listener, void *data)
     struct toplevel *toplevel = wl_container_of(listener, toplevel, unmap);
     wlr_log(WLR_INFO, "window unmapped");
     struct server *server = toplevel->server;
+    plugins_toplevel_unmap(toplevel); /* before the close animation takes its picture */
     animations_cancel(toplevel, false);
     animate_close(toplevel);
     if (toplevel == server->grabbed_toplevel) {

@@ -90,6 +90,18 @@ void animations_tick(struct server *server)
     }
 }
 
+/* The window fades or grows in right now: plugins that redraw windows keep out of its way. */
+bool animations_busy(struct toplevel *t)
+{
+    struct animation *a;
+    wl_list_for_each(a, &t->server->animations, link) {
+        if (a->toplevel == t && a->kind == ANIM_OPEN) {
+            return true;
+        }
+    }
+    return false;
+}
+
 /* A window that is about to be moved, resized or destroyed by other code. */
 void animations_cancel(struct toplevel *t, bool finish)
 {

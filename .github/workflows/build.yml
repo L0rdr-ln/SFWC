@@ -45,6 +45,10 @@ jobs:
           for f in bin/sfwc bin/sfwc-theme-apply share/sfwc/sfwc.conf \
                    share/wayland-sessions/sfwc.desktop share/man/man1/sfwc.1 \
                    share/man/man1/sfwc-theme-apply.1 share/man/man5/sfwc.conf.5 \
-                   share/doc/sfwc/CONFIGURATION.md; do
+                   share/doc/sfwc/CONFIGURATION.md share/doc/sfwc/PLUGINS.md \
+                   include/sfwc/sfwc-plugin.h; do
             test -s "$f" || { echo "missing from the install: $f"; exit 1; }
           done
+          find . -path '*/sfwc/plugins/wobbly.so' | grep -q . || { echo "missing from the install: plugins/wobbly.so"; exit 1; }
+          find . -name sfwc-plugin.pc | grep -q . || { echo "missing from the install: sfwc-plugin.pc"; exit 1; }
+          find . -name hooktest.so | grep -q . && { echo "test plugin was installed"; exit 1; } || true

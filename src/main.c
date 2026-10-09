@@ -135,6 +135,7 @@ int main(int argc, char *argv[])
 
     wl_list_init(&server.toplevels);
     wl_list_init(&server.animations);
+    wl_list_init(&server.plugins);
     server.xdg_shell = wlr_xdg_shell_create(server.display, 3);
     server.new_xdg_toplevel.notify = server_new_xdg_toplevel;
     wl_signal_add(&server.xdg_shell->events.new_toplevel, &server.new_xdg_toplevel);
@@ -203,6 +204,8 @@ int main(int argc, char *argv[])
                       &server.new_virtual_keyboard);
     }
 
+    plugins_reload(&server); /* loads what the config lists */
+
     const char *socket = wl_display_add_socket_auto(server.display);
     if (!socket) {
         wlr_backend_destroy(server.backend);
@@ -236,6 +239,7 @@ int main(int argc, char *argv[])
     wl_display_run(server.display);
 
     wl_display_destroy_clients(server.display);
+    plugins_finish(&server);
     wl_list_remove(&server.new_xdg_toplevel.link);
     wl_list_remove(&server.new_xdg_popup.link);
     wl_list_remove(&server.cursor_motion.link);

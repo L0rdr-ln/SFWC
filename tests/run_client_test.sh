@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Starts sfwc on the headless backend, runs the test client against it and checks the
 # compositor's log and side effects.
-# Usage: run_client_test.sh <sfwc> <client_test> [single|multi|nested|deco|anim|layers|workspaces|lock]
+# Usage: run_client_test.sh <sfwc> <client_test> [single|multi|nested|deco|anim|layers|workspaces|lock|plugins|wobbly]
 #   single: one output, input, snapping, live config reload, autostart, terminal
 #   multi:  two outputs (different size/scale/position), follow-mouse, output actions,
 #           reload-config key (config file watching is switched off)
@@ -50,6 +50,29 @@ CONF
     ;;
 layers|workspaces|lock)
     : >"$SFWC_CONFIG"
+    ;;
+plugins)
+    # The test plugin logs what the host tells it. One plugin does not exist, one refuses to
+    # start, one claims another API version: none of that may stop the compositor.
+    cat >"$SFWC_CONFIG" <<'CONF'
+[plugins]
+load = hooktest
+load = nonexistent
+load = badplugin
+load = ../escape
+[plugin:hooktest]
+greeting = hello
+CONF
+    ;;
+wobbly)
+    # Wobbly windows with critical damping (no overshoot, slow enough to see the lag)
+    cat >"$SFWC_CONFIG" <<'CONF'
+[plugins]
+load = wobbly
+[plugin:wobbly]
+spring = 4
+friction = 4
+CONF
     ;;
 anim)
     unset SFWC_NO_ANIMATIONS
@@ -195,6 +218,22 @@ workspaces)
 layers)
     grep -q "layer surface mapped: namespace=bar" "$LOG" || fail "the panel was never mapped"
     grep -q "layer surface unmapped: namespace=launcher" "$LOG" || fail "the launcher was never unmapped"
+    ;;
+plugins)
+    grep -q "plugin hooktest: init api=1 greeting=hello missing=(none)" "$LOG" || fail "the test plugin was not initialised with its settings"
+    grep -q "plugin hooktest loaded" "$LOG" || fail "the test plugin was not reported as loaded"
+    grep -q "plugin hooktest: first frame" "$LOG" || fail "the plugin never got a frame callback"
+    grep -q "plugin hooktest: window outer=48,48 .* visible=1 tree=1" "$LOG" || fail "the plugin did not see the window correctly"
+    grep -q "plugin hooktest: window unmapped" "$LOG" || fail "the plugin was not told that the window went away"
+    grep -q "plugin hooktest: fini after" "$LOG" || fail "the plugin was not shut down cleanly"
+    grep -q "plugin nonexistent: nonexistent.so not found" "$LOG" || fail "a missing plugin was not reported"
+    grep -q "plugin badplugin: not loading .*another plugin API version" "$LOG" || fail "a plugin with the wrong API version was accepted"
+    grep -q "init was called although" "$LOG" && fail "init of a refused plugin ran"
+    grep -q "load: '../escape' is not a plugin name" "$LOG" || fail "a path as plugin name was not rejected"
+    ;;
+wobbly)
+    grep -q "plugin wobbly loaded" "$LOG" || fail "the wobbly plugin was not loaded"
+    grep -q "plugin wobbly: swinging from 48,48 to 348,48" "$LOG" || fail "the window never started to wobble"
     ;;
 anim)
     grep -q "window mapped.*animated" "$LOG" || fail "window was never mapped"

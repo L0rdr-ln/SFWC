@@ -49,6 +49,8 @@ save it.
   **screen lock** (swaylock), idle (swayidle), taskbars, clipboard managers, screenshots (grim).
 - **Simple configuration** – one INI-style file, sensible defaults, mistakes are reported with
   their line number and never stop the compositor. No scripting language.
+- **Plugins** – effects and extras live in plugins (`[plugins] load = wobbly`), so the core stays
+  small ([plugin API](docs/PLUGINS.md)).
 - **Small and readable** – C11 against wlroots, split by topic ([architecture](docs/ARCHITECTURE.md)).
 
 ## Themes

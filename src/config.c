@@ -178,6 +178,58 @@ static void install_default_mousebinds(struct config *c)
     add_mousebind(c, m, BTN_RIGHT, ACTION_RESIZE);
 }
 
+static void clear_plugins(struct config *c)
+{
+    for (size_t i = 0; i < c->n_plugins; i++) {
+        free(c->plugins[i]);
+    }
+    free(c->plugins);
+    c->plugins = NULL;
+    c->n_plugins = 0;
+    for (size_t i = 0; i < c->n_plugin_cfgs; i++) {
+        struct plugin_cfg *pc = &c->plugin_cfgs[i];
+        for (size_t k = 0; k < pc->n; k++) {
+            free(pc->keys[k]);
+            free(pc->values[k]);
+        }
+        free(pc->keys);
+        free(pc->values);
+        free(pc->name);
+    }
+    free(c->plugin_cfgs);
+    c->plugin_cfgs = NULL;
+    c->n_plugin_cfgs = 0;
+}
+
+bool config_valid_plugin_name(const char *name)
+{
+    size_t n = strlen(name);
+    if (n < 1 || n > 32) {
+        return false;
+    }
+    for (size_t i = 0; i < n; i++) {
+        char ch = name[i];
+        if (!((ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9') || ch == '_' || ch == '-')) {
+            return false;
+        }
+    }
+    return true;
+}
+
+const char *config_plugin_get(const struct config *c, const char *plugin, const char *key)
+{
+    for (size_t i = 0; i < c->n_plugin_cfgs; i++) {
+        if (!strcmp(c->plugin_cfgs[i].name, plugin)) {
+            for (size_t k = 0; k < c->plugin_cfgs[i].n; k++) {
+                if (!strcmp(c->plugin_cfgs[i].keys[k], key)) {
+                    return c->plugin_cfgs[i].values[k];
+                }
+            }
+        }
+    }
+    return NULL;
+}
+
 void config_finish(struct config *c)
 {
     free(c->theme);
@@ -194,6 +246,7 @@ void config_finish(struct config *c)
     clear_binds(c);
     clear_mbinds(c);
     clear_autostart(c);
+    clear_plugins(c);
     for (size_t i = 0; i < c->n_templates_off; i++) {
         free(c->templates_off[i]);
     }
@@ -584,6 +637,57 @@ static void handle_output(struct loader *l, const char *name, const char *key, c
     }
 }
 
+static void handle_plugins(struct loader *l, const char *key, const char *v)
+{
+    struct config *c = l->c;
+    if (strcmp(key, "load") != 0) {
+        report(l, CONFIG_WARNING, "unknown key '%s' in [plugins] (use load = <name>)", key);
+    } else if (!config_valid_plugin_name(v)) {
+        report(l, CONFIG_ERROR, "load: '%s' is not a plugin name (1-32 of a-z 0-9 _ -)", v);
+    } else {
+        for (size_t i = 0; i < c->n_plugins; i++) {
+            if (!strcmp(c->plugins[i], v)) {
+                return; /* listed twice */
+            }
+        }
+        c->plugins = xrealloc(c->plugins, (c->n_plugins + 1) * sizeof(char *));
+        c->plugins[c->n_plugins++] = xstrdup(v);
+    }
+}
+
+/* [plugin:NAME]: the keys are the plugin's business; the last assignment of a key wins. */
+static void handle_plugin_section(struct loader *l, const char *name, const char *key, const char *v)
+{
+    struct config *c = l->c;
+    if (!config_valid_plugin_name(name)) {
+        report(l, CONFIG_ERROR, "section [plugin:%s]: not a plugin name (1-32 of a-z 0-9 _ -)", name);
+        return;
+    }
+    struct plugin_cfg *pc = NULL;
+    for (size_t i = 0; i < c->n_plugin_cfgs; i++) {
+        if (!strcmp(c->plugin_cfgs[i].name, name)) {
+            pc = &c->plugin_cfgs[i];
+        }
+    }
+    if (!pc) {
+        c->plugin_cfgs = xrealloc(c->plugin_cfgs, (c->n_plugin_cfgs + 1) * sizeof *c->plugin_cfgs);
+        pc = &c->plugin_cfgs[c->n_plugin_cfgs++];
+        *pc = (struct plugin_cfg){.name = xstrdup(name)};
+    }
+    for (size_t k = 0; k < pc->n; k++) {
+        if (!strcmp(pc->keys[k], key)) {
+            free(pc->values[k]);
+            pc->values[k] = xstrdup(v);
+            return;
+        }
+    }
+    pc->keys = xrealloc(pc->keys, (pc->n + 1) * sizeof(char *));
+    pc->values = xrealloc(pc->values, (pc->n + 1) * sizeof(char *));
+    pc->keys[pc->n] = xstrdup(key);
+    pc->values[pc->n] = xstrdup(v);
+    pc->n++;
+}
+
 static void handle_animations(struct loader *l, const char *key, const char *v)
 {
     struct config *c = l->c;
@@ -619,6 +723,10 @@ static int config_ini_cb(void *user, const char *section, const char *name, cons
         handle_keyboard(l, name, value);
     } else if (!strncmp(section, "output:", 7)) {
         handle_output(l, section + 7, name, value);
+    } else if (!strcmp(section, "plugins")) {
+        handle_plugins(l, name, value);
+    } else if (!strncmp(section, "plugin:", 7)) {
+        handle_plugin_section(l, section + 7, name, value);
     } else if (!strcmp(section, "keybinds")) {
         handle_keybind(l, name, value);
     } else if (!strcmp(section, "mouse")) {

@@ -313,6 +313,48 @@ static void test_expand(void)
     config_finish(&c);
 }
 
+static void test_plugins(void)
+{
+    struct config c;
+    struct log l = {0};
+    config_init_defaults(&c);
+    CHECK(c.n_plugins == 0 && c.n_plugin_cfgs == 0);
+    CHECK(config_load_string(&c,
+                             "[plugins]\n"                 /* 1 */
+                             "load = wobbly\n"             /* 2 */
+                             "load = ../evil\n"            /* 3 bad: would escape the plugin directory */
+                             "load = wobbly\n"             /* 4 twice */
+                             "load = my-fx_2\n"            /* 5 */
+                             "enable = fire\n"             /* 6 unknown key */
+                             "[plugin:wobbly]\n"           /* 7 */
+                             "spring = 120\n"              /* 8 */
+                             "friction = 9\n"              /* 9 */
+                             "spring = 80\n"               /* 10 last wins */
+                             "[plugin:Bad Name]\n"         /* 11 */
+                             "x = 1\n"                     /* 12 bad section */
+                             "[plugin:other]\n"
+                             "colour = red\n",
+                             collect, &l));
+    if (!has_msg(&l, CONFIG_ERROR, 3, "not a plugin name") || !has_msg(&l, CONFIG_WARNING, 6, "unknown key") ||
+        !has_msg(&l, CONFIG_ERROR, 12, "not a plugin name")) {
+        dump(&l);
+    }
+    CHECK(has_msg(&l, CONFIG_ERROR, 3, "not a plugin name"));
+    CHECK(has_msg(&l, CONFIG_WARNING, 6, "unknown key"));
+    CHECK(has_msg(&l, CONFIG_ERROR, 12, "not a plugin name"));
+    CHECK(c.n_plugins == 2 && !strcmp(c.plugins[0], "wobbly") && !strcmp(c.plugins[1], "my-fx_2"));
+    CHECK(c.n_plugin_cfgs == 2);
+    CHECK(config_plugin_get(&c, "wobbly", "spring") && !strcmp(config_plugin_get(&c, "wobbly", "spring"), "80"));
+    CHECK(!strcmp(config_plugin_get(&c, "wobbly", "friction"), "9"));
+    CHECK(config_plugin_get(&c, "wobbly", "nothing") == NULL);
+    CHECK(config_plugin_get(&c, "nobody", "spring") == NULL);
+    CHECK(!strcmp(config_plugin_get(&c, "other", "colour"), "red"));
+    CHECK(config_valid_plugin_name("a") && config_valid_plugin_name("wobbly-2_x"));
+    CHECK(!config_valid_plugin_name("") && !config_valid_plugin_name("Wobbly") && !config_valid_plugin_name("a/b") &&
+          !config_valid_plugin_name("a.so") && !config_valid_plugin_name("0123456789012345678901234567890123"));
+    config_finish(&c);
+}
+
 static void test_missing_file(void)
 {
     struct config c;
@@ -332,6 +374,7 @@ int main(void)
     test_values_and_hash_colors();
     test_keyboard_and_outputs();
     test_expand();
+    test_plugins();
     test_missing_file();
     if (failures) {
         fprintf(stderr, "%d check(s) failed\n", failures);
