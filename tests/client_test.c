@@ -2167,6 +2167,14 @@ static void run_output_mgmt(struct app *app, struct wl_display *d)
     if (app->cfg_result != 1) {
         fail("test of a valid output configuration did not succeed");
     }
+    zwlr_output_configuration_v1_destroy(cfg); /* a configuration can only be used once */
+    cfg = zwlr_output_manager_v1_create_configuration(app->out_mgr, app->out_serial);
+    zwlr_output_configuration_v1_add_listener(cfg, &out_cfg_listener, app);
+    ch = zwlr_output_configuration_v1_enable_head(cfg, app->heads[h1].head);
+    zwlr_output_configuration_head_v1_set_scale(ch, wl_fixed_from_double(1.5));
+    ch = zwlr_output_configuration_v1_enable_head(cfg, app->heads[h2].head);
+    zwlr_output_configuration_head_v1_set_position(ch, 0, 720);
+    zwlr_output_configuration_head_v1_set_scale(ch, wl_fixed_from_double(2.0));
     app->cfg_result = 0;
     zwlr_output_configuration_v1_apply(cfg);
     wait_flag(d, &app->cfg_result, 2000);
