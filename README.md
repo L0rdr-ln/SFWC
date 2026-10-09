@@ -38,8 +38,8 @@ save it.
   minimize, snap to screen edges and to other windows, cascade placement, several outputs.
 - **Server-side decorations** – title bar, borders, rounded corners, soft shadows, drawn from the
   theme (cairo + pango).
-- **Themes** – small text files; ten included (below). Optional separate package, the compositor
-  has a built-in default look.
+- **Themes** – small text files; two included (below) and eight more in a theme pack. The
+  compositor has a built-in default look.
 - **One theme for the whole desktop** – the same file also colors your bar, launcher,
   terminal, notifications and lock screen through
   [templates](docs/THEMES.md#one-theme-for-the-whole-desktop-templating).
@@ -58,15 +58,16 @@ save it.
 ## Themes
 
 <table>
-<tr><td align="center"><img src="docs/themes/default.svg" width="260" alt="Default theme"><br><sub><b>Default</b> · <code>theme = default</code></sub></td><td align="center"><img src="docs/themes/light.svg" width="260" alt="Light theme"><br><sub><b>Light</b> · <code>theme = light</code></sub></td><td align="center"><img src="docs/themes/nord.svg" width="260" alt="Nord theme"><br><sub><b>Nord</b> · <code>theme = nord</code></sub></td></tr>
-<tr><td align="center"><img src="docs/themes/gruvbox-dark.svg" width="260" alt="Gruvbox Dark theme"><br><sub><b>Gruvbox Dark</b> · <code>theme = gruvbox-dark</code></sub></td><td align="center"><img src="docs/themes/dracula.svg" width="260" alt="Dracula theme"><br><sub><b>Dracula</b> · <code>theme = dracula</code></sub></td><td align="center"><img src="docs/themes/tokyo-night.svg" width="260" alt="Tokyo Night theme"><br><sub><b>Tokyo Night</b> · <code>theme = tokyo-night</code></sub></td></tr>
-<tr><td align="center"><img src="docs/themes/rose-pine.svg" width="260" alt="Rosé Pine theme"><br><sub><b>Rosé Pine</b> · <code>theme = rose-pine</code></sub></td><td align="center"><img src="docs/themes/solarized-dark.svg" width="260" alt="Solarized Dark theme"><br><sub><b>Solarized Dark</b> · <code>theme = solarized-dark</code></sub></td><td align="center"><img src="docs/themes/solarized-light.svg" width="260" alt="Solarized Light theme"><br><sub><b>Solarized Light</b> · <code>theme = solarized-light</code></sub></td></tr>
-<tr><td align="center"><img src="docs/themes/high-contrast.svg" width="260" alt="High Contrast theme"><br><sub><b>High Contrast</b> · <code>theme = high-contrast</code></sub></td></tr>
+<tr><td align="center"><img src="docs/themes/default.svg" width="260" alt="Default theme"><br><sub><b>Default</b> · <code>theme = default</code></sub></td><td align="center"><img src="docs/themes/light.svg" width="260" alt="Light theme"><br><sub><b>Light</b> · <code>theme = light</code></sub></td></tr>
 </table>
+
+Eight more (Nord, Gruvbox, Dracula, Tokyo Night, Rosé Pine, Solarized dark and light, High
+Contrast) are a theme pack in the
+[sfwc-plugins](https://github.com/L0rdr-ln/sfwc-plugins#theme-pack) repository, with previews.
 
 <sub>These pictures are mock-ups drawn from each theme file by
 [`tools/theme-preview.py`](tools/theme-preview.py) (colors, borders, corner radius, buttons,
-shadow), not screenshots. Switch with `theme = nord` in the config. Write your own: see
+shadow), not screenshots. Switch with `theme = light` in the config. Write your own: see
 [docs/THEMES.md](docs/THEMES.md). A theme that ships its own templates can make other
 programs run commands, so read those before using a theme from someone you do not know
 ([details](docs/THEMES.md#safety-what-installing-a-theme-trusts)).</sub>

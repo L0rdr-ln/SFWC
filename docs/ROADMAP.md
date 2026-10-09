@@ -90,7 +90,8 @@ are roughly in build order; check them off as they land.
 - [x] Expand theme values (`@section.key@`) in `[autostart]` and `spawn:` commands
 - [x] More tools: swaylock, mako, foot
 - [x] More themes: nord, gruvbox-dark, dracula, tokyo-night, rose-pine, solarized-dark/light,
-      high-contrast (checked for readable contrast by a test)
+      high-contrast (checked for readable contrast by a test); now the theme pack of the
+      sfwc-plugins repository
 - [ ] Move `themes/` to its own repo once format and templates are stable
 
 ## M7 – Release

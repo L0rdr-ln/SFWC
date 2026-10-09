@@ -12,12 +12,12 @@ and [light.theme](../themes/light.theme). Share a theme by sharing the file.
 
 ## Included themes
 
-`default` (Catppuccin Mocha colors, also built into the compositor), `light`, `nord`,
-`gruvbox-dark`, `dracula`, `tokyo-night`, `rose-pine`, `solarized-dark`, `solarized-light` and
-`high-contrast` (thick yellow border, large text, no shadow). Previews are in the
-[README](../README.md#themes). The colors come from the well-known palettes of those names;
-`solarized-light` uses a darker text color than the original palette so that the title text
-reaches a 4.5:1 contrast ratio. A test checks every shipped theme for that.
+`default` (Catppuccin Mocha colors, also built into the compositor) and `light` come with the
+compositor's optional theme package (`themes/`). More are a theme pack in the
+[sfwc-plugins](https://github.com/L0rdr-ln/sfwc-plugins) repository: `nord`, `gruvbox-dark`,
+`dracula`, `tokyo-night`, `rose-pine`, `solarized-dark`, `solarized-light` and `high-contrast`
+(thick yellow border, large text, no shadow), with previews. Installed, they are found like any
+other theme (`theme = nord`). A test checks every shipped theme for readable contrast.
 
 ## Format reference
 

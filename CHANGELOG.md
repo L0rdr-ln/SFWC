@@ -20,6 +20,10 @@ Versions follow the roadmap milestones while the project is pre-1.0:
   by the sfwc-plugins CI against the real plugin.
 
 ### Changed
+- **The eight extra themes moved out of the compositor repository** into the theme pack of
+  sfwc-plugins (nord, gruvbox-dark, dracula, tokyo-night, rose-pine, solarized-dark/light,
+  high-contrast, with previews and the contrast test). Installed to the same place, they work as
+  before (`theme = nord`). The compositor keeps `default` and `light` and the templates.
 - **Animations are now a plugin.** The Hyprland style rules and curves, popin/slide/slidefade,
   workspace slides, the border fade, and the fire, squeeze and zoom effects moved to the
   `animations` plugin in the sfwc-plugins repository; the compositor has no animation code any

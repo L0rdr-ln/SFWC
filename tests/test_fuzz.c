@@ -191,7 +191,7 @@ int main(void)
     size_t conf_len = 0, theme_len = 0, tpl_len = 0;
     snprintf(path, sizeof path, "%s/config/sfwc.conf", SRC_ROOT);
     char *conf = slurp(path, &conf_len);
-    snprintf(path, sizeof path, "%s/themes/nord.theme", SRC_ROOT);
+    snprintf(path, sizeof path, "%s/themes/light.theme", SRC_ROOT);
     char *themef = slurp(path, &theme_len);
     snprintf(path, sizeof path, "%s/themes/templates/waybar.css.in", SRC_ROOT);
     char *tpl = slurp(path, &tpl_len);

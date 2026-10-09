@@ -173,7 +173,7 @@ int main(void)
     closedir(d);
     free(meson);
     free(readme);
-    CHECK(checked >= 10, "only %d themes found", checked);
+    CHECK(checked >= 2, "only %d themes found", checked); /* default and light; the rest is the theme pack */
     if (failures) {
         fprintf(stderr, "%d check(s) failed\n", failures);
         return 1;
