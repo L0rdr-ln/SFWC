@@ -65,12 +65,12 @@ are roughly in build order; check them off as they land.
       buttons, drag to move, border/corner drag to resize, double-click to maximize
 - [x] Title text with cairo + pango
 - [x] Rounded corners and blurred shadows (on the frame; client content stays rectangular)
-- [x] Animation engine (now the `animations` plugin in sfwc-plugins): easing, time-based progress; open, close and move
-      animations, driven by the output frame callbacks
-- [x] Animations can be disabled (config, `SFWC_NO_ANIMATIONS=1`) and are switched off live
+- [x] Animations: first an engine in the core, now the `animations` plugin (see M8), so the
+      compositor itself has none
 - [x] `wlr-screencopy` exposed (also what the tests use to look at the screen)
-- Not possible with wlroots 0.18: scaling windows (so `fade-scale` is a fade + slide) and
-  clipping client content to rounded corners; resize animations would need the client to cooperate
+- Not possible with the scene graph: clipping client content to rounded corners, rotating or
+  warping a window picture (plugins fake scaling and wobbling by cutting windows into tiles);
+  resize animations would need the client to cooperate
 
 ## M5 – Desktop integration
 - [x] `wlr-layer-shell` (bars, wallpaper, launcher; exclusive zones, exclusive keyboard focus, popups)
@@ -78,8 +78,8 @@ are roughly in build order; check them off as they land.
 - [x] `ext-session-lock`
 - [x] `wlr-foreign-toplevel-management` (taskbar)
 - [x] Workspaces: `workspace:N` / `move-to-workspace:N`, per-window workspace
-- [x] Workspace-switch animation (slide, slidevert, slidefade, fade)
-- [ ] `ext-workspace` protocol (wlroots 0.20 has it; needs the 0.20 branch)
+- [x] Workspace-switch animation (slide, slidevert, slidefade, fade): the `animations` plugin
+- [ ] `ext-workspace` protocol (wlroots 0.20 has it, so this is possible now)
 - [x] Screenshots / screen capture (screencopy), clipboard, primary selection, data-control
 
 ## M6 – Themes and templating  *(separate `sfwc-themes` package)*
@@ -103,7 +103,31 @@ are roughly in build order; check them off as they land.
       `tools/try-sfwc.sh` and `docs/HARDWARE-TESTING.md` make it a five minute job.
 - [ ] Packaging (Arch/AUR, Debian, Nix), tag 1.0.0 (tags/releases are made by the maintainer)
 
+## M8 – Plugins  *(the loader and the API are in the core; the plugins live in [sfwc-plugins](https://github.com/L0rdr-ln/sfwc-plugins))*
+- [x] Plugin API 1: `[plugins] load = NAME`, `[plugin:NAME]` settings, search path, live
+      load/unload/reconfigure on config reload, frame callback, window list and info
+- [x] Plugin API 2: window hooks (map, commit, unmap, move, cancel, focus), workspace and layer
+      hooks, host functions (output boxes, all lines of a section, clock, busy mark, frame color
+      mix); the callback table carries its size so that older plugins keep loading
+- [x] Safety: names only (no paths), files writable by everybody are refused, wrong API version or
+      wlroots version refused, a failing plugin never stops the compositor
+- [x] `sfwc-plugin.pc` and the header are installed; plugins can be built as a meson subproject
+- [x] The animations (Hyprland and Wayfire style) and wobbly windows are plugins; the core has no
+      animation code
+- [ ] API 3 candidates, when a plugin needs them: window rules (a hook before a window is
+      placed, to set position, size, workspace), pointer and key events, a way to add scene trees
+      above/below windows with input passthrough, per-output frame hooks
+- [ ] A plugin sandbox is **not** planned: plugins run with the compositor's rights (documented)
+
 ## Later / ideas
-- Optional tiling-assist (snap zones), window rules, per-app opacity
+- Missing protocols people expect from a desktop: `cursor-shape`, `fractional-scale`,
+  `viewporter`, `xdg-activation`, `pointer-constraints` and `relative-pointer` (games),
+  `wlr-output-management` (kanshi, wlr-randr), `wlr-gamma-control` (night light),
+  `output-power-management`, `ext-workspace`
+- libinput settings (tap to click, natural scrolling, pointer acceleration) in the config
+- Window rules (per application: floating geometry, workspace, opacity), perhaps as a plugin
 - IPC socket and a small control CLI (`sfwcctl`)
+- Portals (screen sharing, file chooser) with xdg-desktop-portal-wlr: document the setup
+- Optional tiling-assist (snap zones)
 - HiDPI / fractional scaling polish, HDR, tablet/touch gestures
+- Plugin ideas are collected in the [sfwc-plugins roadmap](https://github.com/L0rdr-ln/sfwc-plugins/blob/main/docs/ROADMAP.md)

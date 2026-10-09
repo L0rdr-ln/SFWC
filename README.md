@@ -95,7 +95,9 @@ sudo meson install -C build     # sfwc, sfwc-theme-apply, man pages, wayland-ses
 sfwc                            # on a TTY; or pick "SFWC" in your display manager
 ```
 
-Optional extra themes and templates (`themes/` is a separate package):
+Optional extras: more plugins (animations, wobbly windows) are in
+[sfwc-plugins](https://github.com/L0rdr-ln/sfwc-plugins), and extra themes and templates are a
+separate package here (`themes/`):
 
 ```sh
 meson setup build-themes themes && sudo meson install -C build-themes
@@ -167,9 +169,13 @@ Each push builds wlroots and sfwc with AddressSanitizer and UndefinedBehaviorSan
   limits, every shipped theme for validity and readable contrast), a garbage-input fuzz test, and the theme helper;
 - **end-to-end tests** that start the compositor headless and talk to it with a real Wayland
   client using virtual keyboard/pointer input and screen captures: windows and popups,
-  multi-output, decorations checked pixel by pixel, animations, layer-shell, workspaces and the
-  screen lock;
+  multi-output, decorations checked pixel by pixel, layer-shell, workspaces, the screen lock and
+  the plugin API (with test plugins that log every hook, a missing one, a refusing one and
+  ones with a wrong or too small table);
 - a smoke test, and a staged `meson install` that checks the installed files.
+
+The plugins have their own CI in [sfwc-plugins](https://github.com/L0rdr-ln/sfwc-plugins): it builds
+them against this compositor and runs the animation and wobbly scenarios of this test client.
 
 Details and how to add a test: [CONTRIBUTING.md](CONTRIBUTING.md).
 
@@ -177,6 +183,7 @@ Details and how to add a test: [CONTRIBUTING.md](CONTRIBUTING.md).
 
 [Configuration](docs/CONFIGURATION.md) ·
 [Themes and templating](docs/THEMES.md) ·
+[Plugins](docs/PLUGINS.md) ·
 [Architecture](docs/ARCHITECTURE.md) ·
 [Roadmap](docs/ROADMAP.md) ·
 [Changelog](CHANGELOG.md) ·
