@@ -78,7 +78,8 @@ are roughly in build order; check them off as they land.
 - [x] `ext-session-lock`
 - [x] `wlr-foreign-toplevel-management` (taskbar)
 - [x] Workspaces: `workspace:N` / `move-to-workspace:N`, per-window workspace
-- [ ] Workspace-switch animation, `ext-workspace` protocol (needs a hand-written implementation)
+- [x] Workspace-switch animation (slide, slidevert, slidefade, fade)
+- [ ] `ext-workspace` protocol (wlroots 0.20 has it; needs the 0.20 branch)
 - [x] Screenshots / screen capture (screencopy), clipboard, primary selection, data-control
 
 ## M6 – Themes and templating  *(separate `sfwc-themes` package)*

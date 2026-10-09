@@ -5,6 +5,11 @@ Versions follow the roadmap milestones while the project is pre-1.0:
 
 ## Unreleased – M3 "Configuration" and M1–M3 completion
 
+### Fixed
+- The picture of a closing window that fades out was drawn shifted by the window's own position
+  (wlroots reports buffer positions including the root node's offset); the old test only looked at
+  a maximized window.
+
 ### Changed
 - Builds against **wlroots 0.20.0** (was 0.18.2). Needs wayland >= 1.24 and xkbcommon >= 1.8,
   which meson builds from `subprojects/` when the system's are older (new `xkbcommon.wrap`;
@@ -16,6 +21,15 @@ Versions follow the roadmap milestones while the project is pre-1.0:
   layers, lock, ...) around a shared `src/server.h`; no behavior change.
 
 ### Added
+- Hyprland style animations: named cubic Bézier curves (`bezier =`), `animation = type, on, speed,
+  curve, style` rules, `preset = hyprland | minimal | none`. Styles popin (real scaling around
+  the window's center), slide and slidefade for opening and closing windows, a separate fade
+  timeline, workspace slides (`slide`, `slidevert`, `slidefade`, `fade`), the frame colors fading
+  when focus changes (`border`), and layer surfaces fading or growing in. The old `open`,
+  `close`, `move`, `duration_ms` and `easing` keys keep working. See docs/CONFIGURATION.md.
+- Test scenario `compositor-client-hypr` (pixel checks of popin in/out, workspace slides in both
+  directions, slide left and the border color half way) and unit tests for the curves, the rules
+  and the color blend.
 - Eight more themes (nord, gruvbox-dark, dracula, tokyo-night, rose-pine, solarized-dark,
   solarized-light, high-contrast), mock-up previews in `docs/themes/` generated from the theme
   files, and a README gallery.

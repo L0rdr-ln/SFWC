@@ -43,7 +43,9 @@ save it.
 - **One theme for the whole desktop** – the same file also colors your bar, launcher,
   terminal, notifications and lock screen through
   [templates](docs/THEMES.md#one-theme-for-the-whole-desktop-templating).
-- **Animations** – fade/slide on open, close and move; adjustable duration and easing; one switch
+- **Animations, Hyprland style** – popin, slide and slidefade on open and close, workspace slides,
+  a border color fade, your own Bézier curves, `animation = ...` lines that mostly work as in a
+  Hyprland config, or a ready-made `preset = hyprland`; one switch
   turns them all off.
 - **Workspaces** (1–9), **layer-shell** bars/wallpapers/launchers (waybar, swaybg, fuzzel, ...),
   **screen lock** (swaylock), idle (swayidle), taskbars, clipboard managers, screenshots (grim).
