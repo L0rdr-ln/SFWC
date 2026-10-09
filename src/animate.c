@@ -526,6 +526,7 @@ void animate_open(struct toplevel *t)
 
 struct snapshot_ctx {
     struct wlr_scene_tree *snap;
+    int ox, oy; /* position of the window's tree: the iterator's coordinates include it */
     int count;
 };
 
@@ -536,7 +537,7 @@ static void snapshot_iter(struct wlr_scene_buffer *sb, int sx, int sy, void *dat
         return;
     }
     struct wlr_scene_buffer *copy = wlr_scene_buffer_create(ctx->snap, sb->buffer);
-    wlr_scene_node_set_position(&copy->node, sx, sy);
+    wlr_scene_node_set_position(&copy->node, sx - ctx->ox, sy - ctx->oy);
     wlr_scene_buffer_set_dest_size(copy, sb->dst_width, sb->dst_height);
     wlr_scene_buffer_set_source_box(copy, &sb->src_box);
     wlr_scene_buffer_set_transform(copy, sb->transform);
@@ -566,7 +567,7 @@ void snapshot_refresh(struct toplevel *t)
     }
     struct wlr_scene_tree *copy = wlr_scene_tree_create(server->windows_tree);
     wlr_scene_node_set_enabled(&copy->node, false);
-    struct snapshot_ctx ctx = {copy, 0};
+    struct snapshot_ctx ctx = {copy, t->scene_tree->node.x, t->scene_tree->node.y, 0};
     wlr_scene_node_for_each_buffer(&t->scene_tree->node, snapshot_iter, &ctx);
     if (ctx.count == 0) {
         wlr_scene_node_destroy(&copy->node);
