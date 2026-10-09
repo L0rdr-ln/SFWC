@@ -1655,10 +1655,12 @@ static void run_fx(struct app *app, struct wl_display *d)
     win_open_ex(app, d, &b, "burn", 0xff000000u | C_CLIENT, 0, 1);
     sleep_ms(400);
     win_destroy(d, &b);
-    sleep_ms(800);
+    sleep_ms(500); /* a quarter in: the fire has climbed about a third of the window */
     img = capture_screen(app, d);
-    expect_px(&img, p + 100, p + 20, C_CLIENT, "fire out: the top of the window has not burnt yet");
-    expect_not_px(&img, p + 100, p + 85, C_CLIENT, "fire out: the bottom of the window has burnt away");
+    if (blue_of(&img, p + 100, p + 6) < 0x50) { /* the flames are translucent: the blue of the window shows */
+        fail("fire out: the top of the window is not there (not burnt yet)");
+    }
+    expect_not_px(&img, p + 100, p + 90, C_CLIENT, "fire out: the bottom of the window has burnt away");
     int flames = count_fiery(&img, p - 30, p + 10, p + 230, p + 110);
     if (flames < 15) {
         char msg[100];
@@ -1679,10 +1681,12 @@ static void run_fx(struct app *app, struct wl_display *d)
     p = cascade_at(2);
     struct win c;
     win_open_ex(app, d, &c, "unburn", 0xff000000u | C_CLIENT, 0, 1);
-    sleep_ms(800);
+    sleep_ms(1000); /* half way: the edge has reached the middle of the window */
     img = capture_screen(app, d);
-    expect_px(&img, p + 100, p + 20, C_CLIENT, "fire in: the top of the window is already there");
-    expect_not_px(&img, p + 100, p + 85, C_CLIENT, "fire in: the bottom is not there yet");
+    if (blue_of(&img, p + 100, p + 6) < 0x50) {
+        fail("fire in: the top of the window is not there yet");
+    }
+    expect_not_px(&img, p + 100, p + 90, C_CLIENT, "fire in: the bottom is not there yet");
     flames = count_fiery(&img, p - 30, p + 10, p + 230, p + 110);
     if (flames < 15) {
         char msg[100];

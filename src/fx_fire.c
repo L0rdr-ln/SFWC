@@ -100,7 +100,7 @@ void fire_sim_step(struct fire_sim *f, double dt, double x0, double x1, double y
         }
         double u = p->age / p->life;
         /* hot air accelerates upward, a little sideways turbulence that grows with age */
-        p->vy -= (60 + 90 * (1 - u)) * dt;
+        p->vy -= (30 + 50 * (1 - u)) * dt;
         p->vx += sin(f->time * 9 + p->y * 0.05 + i) * 140 * u * dt;
         p->vx *= 1 - 1.5 * dt;
         p->x += p->vx * dt;
@@ -110,8 +110,9 @@ void fire_sim_step(struct fire_sim *f, double dt, double x0, double x1, double y
     if (!emit || x1 < x0) {
         return;
     }
-    /* about 14 new flames per second for every pixel of line... scaled to the cap */
-    double rate = (x1 - x0 + 1) * 3.0 * (f->max / 400.0 > 4 ? 4 : f->max / 400.0 < 0.25 ? 0.25 : f->max / 400.0);
+    /* a few new flames per second for every pixel of line, scaled to the cap: thin enough to
+     * see the window through them */
+    double rate = (x1 - x0 + 1) * 1.8 * (f->max / 400.0 > 4 ? 4 : f->max / 400.0 < 0.25 ? 0.25 : f->max / 400.0);
     f->carry += rate * dt;
     while (f->carry >= 1 && f->n < f->max) {
         f->carry -= 1;
@@ -119,8 +120,8 @@ void fire_sim_step(struct fire_sim *f, double dt, double x0, double x1, double y
         p->x = x0 + rnd(f) * (x1 - x0);
         p->y = y + (rnd(f) - 0.5) * f->size * 0.6;
         p->vx = (rnd(f) - 0.5) * 50;
-        p->vy = -(40 + rnd(f) * 90);
-        p->life = 0.35 + rnd(f) * 0.6;
+        p->vy = -(30 + rnd(f) * 50);
+        p->life = 0.3 + rnd(f) * 0.5;
         p->age = 0;
         p->size = f->size * (0.55 + rnd(f) * 0.6);
     }
@@ -170,7 +171,7 @@ void fire_sim_draw(const struct fire_sim *f, cairo_surface_t *surface, double ox
         double u = p->age / p->life;
         double rgb[3];
         flame_color(f, u, rgb);
-        double alpha = pow(1 - u, 0.8) * 0.85;
+        double alpha = pow(1 - u, 0.8) * 0.7;
         double r = p->size * (1 - 0.45 * u) * scale;
         double x = (p->x - ox) * scale, y = (p->y - oy) * scale;
         cairo_pattern_t *g = cairo_pattern_create_radial(x, y, 0, x, y, r);
