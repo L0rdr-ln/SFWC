@@ -2056,7 +2056,7 @@ static void run_constraints(struct app *app, struct wl_display *d, struct win *a
     zwp_relative_pointer_v1_add_listener(rel, &rel_listener, app);
 
     /* pointer in the window, free: both motion and relative motion arrive */
-    vptr_move(app, d, 48 + 100, 48 + 100);
+    vptr_move(app, d, 48 + 100, 48 + 50); /* the window is 200x100 */
     vptr_rel(app, d, 10, 5);
     check_near(app->rel_dx, 10, 0.5, "relative motion x (free pointer)");
     check_near(app->ptr_sx, 110, 3, "surface x after a relative move");
