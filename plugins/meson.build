@@ -18,3 +18,12 @@ shared_module('badplugin', 'badplugin/badplugin.c', xdg_shell_h, layer_shell_h, 
   include_directories: plugin_inc,
   c_args: plugin_args,
   install: false)
+
+foreach name : ['oldstyle', 'tinyplugin']
+  shared_module(name, name / (name + '.c'), xdg_shell_h, layer_shell_h, session_lock_h,
+    name_prefix: '',
+    dependencies: plugin_deps,
+    include_directories: plugin_inc,
+    c_args: plugin_args,
+    install: false)
+endforeach

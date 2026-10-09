@@ -193,15 +193,12 @@ static void test_values_and_hash_colors(void)
     config_init_defaults(&c);
     CHECK(config_load_string(&c,
                              "[general]\nfocus = follow-mouse\nterminal = #notacomment\ntheme = nord\n"
-                             "[windows]\ngap = 0\nsnap_to_edges = off\nsnap_distance = 30\n"
-                             "[animations]\nenabled = no\nopen = slide\neasing = linear\nduration_ms = 500\n",
+                             "[windows]\ngap = 0\nsnap_to_edges = off\nsnap_distance = 30\n",
                              NULL, NULL));
     CHECK(c.focus == FOCUS_FOLLOW_MOUSE);
     CHECK(!strcmp(c.terminal, "#notacomment")); /* '#' inside a value is kept */
     CHECK(!strcmp(c.theme, "nord"));
     CHECK(c.gap == 0 && !c.snap_to_edges && c.snap_distance == 30);
-    CHECK(!c.anim_enabled && !strcmp(c.anim_open, "slide") && !strcmp(c.anim_easing, "linear") &&
-          c.anim_duration_ms == 500);
     config_finish(&c);
 }
 
@@ -299,170 +296,6 @@ static void test_keyboard_and_outputs(void)
     config_finish(&c);
 }
 
-static void test_animation_rules(void)
-{
-    struct config c;
-    struct log l = {0};
-    struct anim_rule r;
-    struct anim_curve cv;
-
-    /* nothing configured: no rule, the legacy keys apply */
-    config_init_defaults(&c);
-    CHECK(!config_anim_rule(&c, ANIMT_WINDOWS_IN, &r));
-    CHECK(config_find_curve(&c, "linear", &cv) && !config_find_curve(&c, "myBezier", &cv));
-
-    /* a Hyprland style block */
-    const char *text =
-        "[animations]\n"
-        "bezier = myBezier, 0.05, 0.9, 0.1, 1.05\n"         /* 2 */
-        "animation = windows, 1, 7, myBezier\n"             /* 3 */
-        "animation = windowsOut, 1, 5, default, popin 80%\n" /* 4 */
-        "animation = border, 1, 10, default\n"              /* 5 */
-        "animation = fade, 0\n"                             /* 6 */
-        "animation = workspaces, 1, 6, default, slidefade 20%\n" /* 7 */
-        "animation = windowsIn, 1, 4, myBezier, slide left\n"    /* 8 */
-        "animation = borderangle, 1, 8, default, loop\n";   /* 9 */
-    CHECK(config_load_string(&c, text, collect, &l));
-    CHECK(l.n == 1 && has_msg(&l, CONFIG_WARNING, 9, "not supported"));
-    CHECK(config_find_curve(&c, "myBezier", &cv) && cv.y1 == 1.05);
-    /* `windows` set all three, windowsIn/windowsOut then replaced their own */
-    CHECK(config_anim_rule(&c, ANIMT_WINDOWS_MOVE, &r) && r.on && r.speed == 7 && !strcmp(r.curve, "myBezier"));
-    CHECK(config_anim_rule(&c, ANIMT_WINDOWS_OUT, &r) && r.speed == 5 && r.style == ANIM_STYLE_POPIN && r.percent == 80);
-    CHECK(config_anim_rule(&c, ANIMT_WINDOWS_IN, &r) && r.speed == 4 && r.style == ANIM_STYLE_SLIDE && r.dir == ANIM_DIR_LEFT);
-    CHECK(config_anim_rule(&c, ANIMT_BORDER, &r) && r.on && r.speed == 10);
-    CHECK(config_anim_rule(&c, ANIMT_FADE_IN, &r) && !r.on && config_anim_rule(&c, ANIMT_FADE_OUT, &r) && !r.on);
-    CHECK(config_anim_rule(&c, ANIMT_WORKSPACES, &r) && r.style == ANIM_STYLE_SLIDEFADE && r.percent == 20);
-    CHECK(!config_anim_rule(&c, ANIMT_LAYERS_IN, &r));
-
-    /* the global rule is the default for types without their own */
-    l.n = 0;
-    CHECK(config_load_string(&c, "[animations]\nanimation = global, 1, 3, linear\n", collect, &l));
-    CHECK(l.n == 0);
-    CHECK(config_anim_rule(&c, ANIMT_LAYERS_IN, &r) && r.speed == 3 && r.style == ANIM_STYLE_DEFAULT);
-    CHECK(config_anim_rule(&c, ANIMT_BORDER, &r) && r.speed == 10); /* its own rule wins */
-    config_finish(&c);
-
-    /* a later bezier with the same name replaces the earlier one */
-    config_init_defaults(&c);
-    CHECK(config_load_string(&c, "[animations]\nbezier = a, 0, 0, 1, 1\nbezier = a, 0.1, 0.2, 0.3, 0.4\n", NULL, NULL));
-    CHECK(c.n_curves == 1 && config_find_curve(&c, "a", &cv) && cv.y0 == 0.2);
-    config_finish(&c);
-
-    /* mistakes: each is reported on its line and changes nothing */
-    config_init_defaults(&c);
-    memset(&l, 0, sizeof l);
-    text = "[animations]\n"
-           "bezier = x, 0, 0, 1\n"                      /* 2 too few values */
-           "bezier = x, 1.5, 0, 0.5, 1\n"               /* 3 x out of range */
-           "bezier = x, 0, 0, a, 1\n"                   /* 4 not a number */
-           "bezier = bad name!, 0, 0, 1, 1\n"           /* 5 bad name */
-           "animation = windows, 1, 4, nosuchcurve\n"   /* 6 unknown curve */
-           "animation = windows, 1, fast, linear\n"     /* 7 bad speed */
-           "animation = windows, 1, 0, linear\n"        /* 8 speed too small */
-           "animation = windows, maybe, 4, linear\n"    /* 9 bad on/off */
-           "animation = teleport, 1, 4, linear\n"       /* 10 unknown type */
-           "animation = windows, 1, 4, linear, spin\n"  /* 11 unknown style */
-           "animation = border, 1, 4, linear, popin\n"  /* 12 style not allowed */
-           "animation = windowsIn, 1, 4, linear, popin 80\n" /* 13 percent needs % */
-           "animation = windowsIn, 1, 4, linear, slide 50%\n" /* 14 slide takes a direction */
-           "animation = workspaces, 1, 4, linear, popin\n"   /* 15 not for workspaces */
-           "animation = global, 1, 4, linear, fade\n"        /* 16 global takes no style */
-           "animation = windows, 1\n"                        /* 17 speed and curve missing */
-           "preset = flashy\n";                              /* 18 */
-    CHECK(config_load_string(&c, text, collect, &l));
-    CHECK(c.n_curves == 0 && !config_anim_rule(&c, ANIMT_WINDOWS_IN, &r) && !c.anim_global.set);
-    CHECK(has_msg(&l, CONFIG_ERROR, 2, "name, x0"));
-    CHECK(has_msg(&l, CONFIG_ERROR, 3, "between 0 and 1"));
-    CHECK(has_msg(&l, CONFIG_ERROR, 4, "not a number"));
-    CHECK(has_msg(&l, CONFIG_ERROR, 5, "curve name"));
-    CHECK(has_msg(&l, CONFIG_ERROR, 6, "unknown curve"));
-    CHECK(has_msg(&l, CONFIG_ERROR, 7, "speed"));
-    CHECK(has_msg(&l, CONFIG_ERROR, 8, "speed"));
-    CHECK(has_msg(&l, CONFIG_ERROR, 9, "0/1"));
-    CHECK(has_msg(&l, CONFIG_ERROR, 10, "unknown type"));
-    CHECK(has_msg(&l, CONFIG_ERROR, 11, "bad style"));
-    CHECK(has_msg(&l, CONFIG_ERROR, 12, "does not apply"));
-    CHECK(has_msg(&l, CONFIG_ERROR, 13, "bad style"));
-    CHECK(has_msg(&l, CONFIG_ERROR, 14, "bad style"));
-    CHECK(has_msg(&l, CONFIG_ERROR, 15, "does not apply"));
-    CHECK(has_msg(&l, CONFIG_ERROR, 16, "no style"));
-    CHECK(has_msg(&l, CONFIG_ERROR, 17, "needs speed"));
-    CHECK(has_msg(&l, CONFIG_ERROR, 18, "unknown preset"));
-    config_finish(&c);
-
-    /* `animation = windows, 1, 4, linear, popin 80%` is fine: the style only applies where it can */
-    config_init_defaults(&c);
-    CHECK(config_load_string(&c, "[animations]\nanimation = windows, 1, 4, linear, popin 80%\n", collect, &(struct log){0}));
-    CHECK(config_anim_rule(&c, ANIMT_WINDOWS_IN, &r) && r.style == ANIM_STYLE_POPIN && r.percent == 80);
-    CHECK(config_anim_rule(&c, ANIMT_WINDOWS_MOVE, &r) && r.style == ANIM_STYLE_DEFAULT && r.percent == 0);
-    config_finish(&c);
-
-    /* presets */
-    config_init_defaults(&c);
-    memset(&l, 0, sizeof l);
-    CHECK(config_load_string(&c, "[animations]\npreset = hyprland\nanimation = border, 0\n", collect, &l));
-    CHECK(l.n == 0);
-    CHECK(config_anim_rule(&c, ANIMT_WINDOWS_IN, &r) && r.on && r.style == ANIM_STYLE_POPIN && r.percent == 87);
-    CHECK(config_anim_rule(&c, ANIMT_WORKSPACES, &r) && r.style == ANIM_STYLE_SLIDE);
-    CHECK(config_anim_rule(&c, ANIMT_BORDER, &r) && !r.on); /* a line after the preset wins */
-    CHECK(config_find_curve(&c, "easeOutQuint", &cv) && cv.x0 == 0.23);
-    CHECK(c.anim_enabled);
-    config_finish(&c);
-    config_init_defaults(&c);
-    CHECK(config_load_string(&c, "[animations]\npreset = none\n", NULL, NULL));
-    for (int i = 0; i < ANIMT_COUNT; i++) {
-        CHECK(config_anim_rule(&c, i, &r) && !r.on);
-    }
-    config_finish(&c);
-    config_init_defaults(&c);
-    CHECK(config_load_string(&c, "[animations]\npreset = minimal\n", NULL, NULL));
-    CHECK(config_anim_rule(&c, ANIMT_WINDOWS_IN, &r) && r.percent == 95);
-    config_finish(&c);
-
-    /* Wayfire style effects, and which style takes which argument */
-    config_init_defaults(&c);
-    CHECK(c.fire_particles == 400 && c.fire_size == 14 && c.fire_color == 0xff7a18);
-    memset(&l, 0, sizeof l);
-    text = "[animations]\n"
-           "animation = windowsOut, 1, 6, ease, fire\n"            /* 2 */
-           "animation = windowsIn, 1, 4, ease, squeeze\n"          /* 3 */
-           "animation = windowsMove, 1, 3, ease\n"                 /* 4 */
-           "animation = windowsOut, 1, 6, ease, fire 50%\n"        /* 5 fire takes no argument */
-           "animation = windowsIn, 1, 6, ease, squeeze left\n"     /* 6 squeeze takes none either */
-           "animation = windowsIn, 1, 6, ease, zoom 70%\n"         /* 7 ok */
-           "animation = windowsIn, 1, 6, ease, slide 50%\n"        /* 8 a window slide has a direction */
-           "animation = workspaces, 1, 6, ease, slide 50%\n"       /* 9 a workspace slide a percentage */
-           "animation = workspaces, 1, 6, ease, slide left\n"      /* 10 not a direction */
-           "animation = border, 1, 6, ease, fire\n"                /* 11 not for borders */
-           "fire_particles = 900\nfire_size = 20\nfire_color = #3060ff\n"
-           "fire_particles = 5\nfire_size = 500\nfire_color = red\n"; /* 15-17 out of range / bad */
-    CHECK(config_load_string(&c, text, collect, &l));
-    CHECK(has_msg(&l, CONFIG_ERROR, 5, "bad style"));
-    CHECK(has_msg(&l, CONFIG_ERROR, 6, "bad style"));
-    CHECK(has_msg(&l, CONFIG_ERROR, 8, "left, right"));
-    CHECK(has_msg(&l, CONFIG_ERROR, 10, "percentage"));
-    CHECK(has_msg(&l, CONFIG_ERROR, 11, "does not apply"));
-    CHECK(has_msg(&l, CONFIG_ERROR, 15, "between"));
-    CHECK(has_msg(&l, CONFIG_ERROR, 16, "between"));
-    CHECK(has_msg(&l, CONFIG_ERROR, 17, "#rrggbb"));
-    CHECK(l.n == 8);
-    CHECK(c.fire_particles == 900 && c.fire_size == 20 && c.fire_color == 0x3060ff); /* bad ones changed nothing */
-    CHECK(config_anim_rule(&c, ANIMT_WINDOWS_OUT, &r) && r.style == ANIM_STYLE_FIRE && r.speed == 6);
-    CHECK(config_anim_rule(&c, ANIMT_WORKSPACES, &r) && r.style == ANIM_STYLE_SLIDE && r.percent == 50);
-    config_finish(&c);
-    config_init_defaults(&c);
-    CHECK(config_load_string(&c, "[animations]\nanimation = windowsIn, 1, 6, ease, zoom 70%\nanimation = windowsOut, 1, 6, ease, squeeze\n", NULL, NULL));
-    CHECK(config_anim_rule(&c, ANIMT_WINDOWS_IN, &r) && r.style == ANIM_STYLE_ZOOM && r.percent == 70);
-    CHECK(config_anim_rule(&c, ANIMT_WINDOWS_OUT, &r) && r.style == ANIM_STYLE_SQUEEZE);
-    config_finish(&c);
-
-    /* the legacy keys still work next to the new ones */
-    config_init_defaults(&c);
-    CHECK(config_load_string(&c, "[animations]\nopen = slide\nduration_ms = 400\nanimation = border, 1, 5, ease\n", NULL, NULL));
-    CHECK(!strcmp(c.anim_open, "slide") && c.anim_duration_ms == 400 && c.anim[ANIMT_BORDER].on);
-    config_finish(&c);
-}
-
 static void test_expand(void)
 {
     struct config c;
@@ -493,7 +326,7 @@ static void test_plugins(void)
                              "[plugin:wobbly]\n"           /* 7 */
                              "spring = 120\n"              /* 8 */
                              "friction = 9\n"              /* 9 */
-                             "spring = 80\n"               /* 10 last wins */
+                             "spring = 80\n"               /* 10 repeated: both kept, the last one wins */
                              "[plugin:Bad Name]\n"         /* 11 */
                              "x = 1\n"                     /* 12 bad section */
                              "[plugin:other]\n"
@@ -511,11 +344,24 @@ static void test_plugins(void)
     CHECK(config_plugin_get(&c, "wobbly", "spring") && !strcmp(config_plugin_get(&c, "wobbly", "spring"), "80"));
     CHECK(!strcmp(config_plugin_get(&c, "wobbly", "friction"), "9"));
     CHECK(config_plugin_get(&c, "wobbly", "nothing") == NULL);
+    {
+        const struct plugin_cfg *pc = config_plugin_section(&c, "wobbly");
+        CHECK(pc && pc->n == 3 && !strcmp(pc->keys[0], "spring") && !strcmp(pc->values[0], "120") &&
+              pc->lines[0] == 8 && pc->lines[1] == 9 && pc->lines[2] == 10 && !strcmp(pc->values[2], "80"));
+    }
     CHECK(config_plugin_get(&c, "nobody", "spring") == NULL);
     CHECK(!strcmp(config_plugin_get(&c, "other", "colour"), "red"));
     CHECK(config_valid_plugin_name("a") && config_valid_plugin_name("wobbly-2_x"));
     CHECK(!config_valid_plugin_name("") && !config_valid_plugin_name("Wobbly") && !config_valid_plugin_name("a/b") &&
           !config_valid_plugin_name("a.so") && !config_valid_plugin_name("0123456789012345678901234567890123"));
+    config_finish(&c);
+
+    /* [animations] is the settings section of the animations plugin, lines kept in order */
+    config_init_defaults(&c);
+    CHECK(config_load_string(&c, "[animations]\nbezier = a, 0, 0, 1, 1\nanimation = windows, 1, 4, a\nanimation = fade, 0\n[plugin:animations]\nx = 1\n", NULL, NULL));
+    const struct plugin_cfg *pa = config_plugin_section(&c, "animations");
+    CHECK(pa && pa->n == 4 && !strcmp(pa->keys[1], "animation") && !strcmp(pa->values[2], "fade, 0") &&
+          !strcmp(config_plugin_get(&c, "animations", "x"), "1"));
     config_finish(&c);
 }
 
@@ -537,7 +383,6 @@ int main(void)
     test_mod_rebuilds_defaults();
     test_values_and_hash_colors();
     test_keyboard_and_outputs();
-    test_animation_rules();
     test_expand();
     test_plugins();
     test_missing_file();

@@ -5,6 +5,7 @@
 #include "server.h"
 
 #include <dlfcn.h>
+#include <stddef.h>
 #include <stdarg.h>
 #include <sys/stat.h>
 
@@ -19,7 +20,7 @@ struct plugin_inst {
     struct server *server;
     char *name;
     void *handle;
-    const struct sfwc_plugin *plugin;
+    struct sfwc_plugin vt; /* the plugin's table, zero padded to the size this host knows */
     struct sfwc_host host;
 };
 
@@ -87,8 +88,62 @@ static bool host_toplevel_info(struct sfwc_host *host, const struct sfwc_topleve
     info->maximized = t->maximized;
     info->fullscreen = t->fullscreen;
     info->moving = server->cursor_mode == CURSOR_MOVE && server->grabbed_toplevel == t;
-    info->busy = animations_busy(mt);
+    info->busy = t->plugin_busy > 0;
+    info->minimized = t->minimized;
+    info->shown = toplevel_shown(t);
+    info->workspace = t->ws;
     return true;
+}
+
+static size_t host_config_count(struct sfwc_host *host)
+{
+    struct plugin_inst *inst = host->priv;
+    const struct plugin_cfg *pc = config_plugin_section(&inst->server->config, inst->name);
+    return pc ? pc->n : 0;
+}
+
+static bool host_config_entry(struct sfwc_host *host, size_t i, const char **key, const char **value, int *line)
+{
+    struct plugin_inst *inst = host->priv;
+    const struct plugin_cfg *pc = config_plugin_section(&inst->server->config, inst->name);
+    if (!pc || i >= pc->n) {
+        return false;
+    }
+    *key = pc->keys[i];
+    *value = pc->values[i];
+    *line = pc->lines[i];
+    return true;
+}
+
+static void host_output_box_at(struct sfwc_host *host, double x, double y, struct wlr_box *out)
+{
+    *out = output_box_at(host_server(host), x, y);
+}
+
+static int host_current_workspace(struct sfwc_host *host)
+{
+    return host_server(host)->ws_current;
+}
+
+static uint32_t host_now_ms(struct sfwc_host *host)
+{
+    return now_msec();
+}
+
+static void host_toplevel_busy(struct sfwc_host *host, struct sfwc_toplevel *opaque, int delta)
+{
+    struct toplevel *t = (struct toplevel *)opaque;
+    t->plugin_busy += delta;
+    if (t->plugin_busy < 0) {
+        t->plugin_busy = 0;
+    }
+}
+
+static void host_toplevel_set_focus_mix(struct sfwc_host *host, struct sfwc_toplevel *opaque, double mix)
+{
+    struct toplevel *t = (struct toplevel *)opaque;
+    t->focus_mix = mix < 0 ? 0 : mix > 1 ? 1 : mix;
+    frame_refresh(t);
 }
 
 static void host_log(struct sfwc_host *host, int level, const char *fmt, ...)
@@ -143,8 +198,8 @@ static char *find_plugin(const char *name)
 static void inst_free(struct plugin_inst *inst)
 {
     wl_list_remove(&inst->link);
-    if (inst->plugin->fini) {
-        inst->plugin->fini(&inst->host);
+    if (inst->vt.fini) {
+        inst->vt.fini(&inst->host);
     }
     dlclose(inst->handle);
     free(inst->name);
@@ -182,6 +237,8 @@ static void plugin_load(struct server *server, const char *name)
         why = "the name inside does not match the file name";
     } else if (!p->wlroots_version || strcmp(p->wlroots_version, WLR_VERSION_STR) != 0) {
         why = "it was built against another wlroots version";
+    } else if (p->struct_size < offsetof(struct sfwc_plugin, toplevel_unmap) + sizeof p->toplevel_unmap) {
+        why = "its callback table is too small (struct_size)";
     } else if (!p->init) {
         why = "it has no init()";
     }
@@ -200,7 +257,7 @@ static void plugin_load(struct server *server, const char *name)
     inst->server = server;
     inst->name = strdup(name);
     inst->handle = handle;
-    inst->plugin = p;
+    memcpy(&inst->vt, p, p->struct_size < sizeof inst->vt ? p->struct_size : sizeof inst->vt);
     inst->host = (struct sfwc_host){
         .api_version = SFWC_PLUGIN_API_VERSION,
         .struct_size = sizeof(struct sfwc_host),
@@ -212,9 +269,16 @@ static void plugin_load(struct server *server, const char *name)
         .toplevel_next = host_toplevel_next,
         .toplevel_info = host_toplevel_info,
         .log = host_log,
+        .config_count = host_config_count,
+        .config_entry = host_config_entry,
+        .output_box_at = host_output_box_at,
+        .current_workspace = host_current_workspace,
+        .now_ms = host_now_ms,
+        .toplevel_busy = host_toplevel_busy,
+        .toplevel_set_focus_mix = host_toplevel_set_focus_mix,
     };
     wl_list_insert(server->plugins.prev, &inst->link);
-    if (!p->init(&inst->host)) {
+    if (!inst->vt.init(&inst->host)) {
         wlr_log(WLR_ERROR, "plugin %s: init failed, unloading it", name);
         wl_list_remove(&inst->link);
         dlclose(handle);
@@ -257,8 +321,8 @@ void plugins_reload(struct server *server)
         inst = find_inst(server, c->plugins[i]);
         if (!inst) {
             plugin_load(server, c->plugins[i]);
-        } else if (inst->plugin->reconfigure) {
-            inst->plugin->reconfigure(&inst->host);
+        } else if (inst->vt.reconfigure) {
+            inst->vt.reconfigure(&inst->host);
         }
     }
 }
@@ -267,19 +331,99 @@ void plugins_frame(struct server *server, uint32_t now)
 {
     struct plugin_inst *inst, *tmp;
     wl_list_for_each_safe(inst, tmp, &server->plugins, link) {
-        if (inst->plugin->frame) {
-            inst->plugin->frame(&inst->host, now);
+        if (inst->vt.frame) {
+            inst->vt.frame(&inst->host, now);
         }
     }
 }
 
+/* The callbacks that take a window and return nothing. */
+#define WINDOW_HOOK(fn)                                                                            \
+    void plugins_##fn(struct toplevel *t)                                                          \
+    {                                                                                              \
+        struct plugin_inst *inst;                                                                  \
+        wl_list_for_each(inst, &t->server->plugins, link) {                                        \
+            if (inst->vt.fn) {                                                                     \
+                inst->vt.fn(&inst->host, (struct sfwc_toplevel *)t);                               \
+            }                                                                                      \
+        }                                                                                          \
+    }
+
+WINDOW_HOOK(toplevel_map)
+WINDOW_HOOK(toplevel_commit)
+WINDOW_HOOK(toplevel_cancel)
+
 void plugins_toplevel_unmap(struct toplevel *t)
 {
-    struct server *server = t->server;
+    struct plugin_inst *inst;
+    wl_list_for_each(inst, &t->server->plugins, link) {
+        if (inst->vt.toplevel_unmap) {
+            inst->vt.toplevel_unmap(&inst->host, (struct sfwc_toplevel *)t);
+        }
+    }
+    t->plugin_busy = 0;
+}
+
+/* The first plugin that wants to animate the move gets it. */
+bool plugins_toplevel_move(struct toplevel *t, double from_x, double from_y, double to_x, double to_y)
+{
+    struct plugin_inst *inst;
+    wl_list_for_each(inst, &t->server->plugins, link) {
+        if (inst->vt.toplevel_move &&
+            inst->vt.toplevel_move(&inst->host, (struct sfwc_toplevel *)t, from_x, from_y, to_x, to_y)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool plugins_toplevel_focus(struct toplevel *t, double from, double to)
+{
+    struct plugin_inst *inst;
+    wl_list_for_each(inst, &t->server->plugins, link) {
+        if (inst->vt.toplevel_focus && inst->vt.toplevel_focus(&inst->host, (struct sfwc_toplevel *)t, from, to)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+void plugins_workspace_leaving(struct server *server, int old_ws, int new_ws)
+{
     struct plugin_inst *inst;
     wl_list_for_each(inst, &server->plugins, link) {
-        if (inst->plugin->toplevel_unmap) {
-            inst->plugin->toplevel_unmap(&inst->host, (struct sfwc_toplevel *)t);
+        if (inst->vt.workspace_leaving) {
+            inst->vt.workspace_leaving(&inst->host, old_ws, new_ws);
+        }
+    }
+}
+
+void plugins_workspace_entered(struct server *server, int old_ws, int new_ws)
+{
+    struct plugin_inst *inst;
+    wl_list_for_each(inst, &server->plugins, link) {
+        if (inst->vt.workspace_entered) {
+            inst->vt.workspace_entered(&inst->host, old_ws, new_ws);
+        }
+    }
+}
+
+void plugins_layer_map(struct server *server, struct wlr_scene_tree *tree)
+{
+    struct plugin_inst *inst;
+    wl_list_for_each(inst, &server->plugins, link) {
+        if (inst->vt.layer_map) {
+            inst->vt.layer_map(&inst->host, tree);
+        }
+    }
+}
+
+void plugins_layer_unmap(struct server *server, struct wlr_scene_tree *tree)
+{
+    struct plugin_inst *inst;
+    wl_list_for_each(inst, &server->plugins, link) {
+        if (inst->vt.layer_unmap) {
+            inst->vt.layer_unmap(&inst->host, tree);
         }
     }
 }

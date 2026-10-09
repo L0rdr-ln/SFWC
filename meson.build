@@ -38,18 +38,12 @@ inifile_dep = declare_dependency(
 
 libm = meson.get_compiler('c').find_library('m')
 
-anim_lib = static_library('sfwc_anim', 'src/anim.c')
-anim_dep = declare_dependency(
-  link_with: anim_lib,
-  include_directories: include_directories('src'),
-  dependencies: libm)
-
 config_lib = static_library('sfwc_config', 'src/config.c',
-  dependencies: [inifile_dep, xkbcommon, anim_dep])
+  dependencies: [inifile_dep, xkbcommon])
 config_dep = declare_dependency(
   link_with: config_lib,
   include_directories: include_directories('src'),
-  dependencies: [inifile_dep, xkbcommon, anim_dep])
+  dependencies: [inifile_dep, xkbcommon])
 
 theme_lib = static_library('sfwc_theme', 'src/theme.c', dependencies: inifile_dep)
 theme_dep = declare_dependency(
@@ -72,13 +66,6 @@ install_man('man/sfwc-theme-apply.1')
 cairo = dependency('cairo')
 pangocairo = dependency('pangocairo')
 fontconfig = dependency('fontconfig')
-
-# Flames for the `fire` animation: a particle simulation and its software drawing.
-fire_lib = static_library('sfwc_fire', 'src/fx_fire.c', dependencies: [cairo, libm])
-fire_dep = declare_dependency(
-  link_with: fire_lib,
-  include_directories: include_directories('src'),
-  dependencies: [cairo, libm])
 
 deco_lib = static_library('sfwc_deco', 'src/deco.c',
   dependencies: [theme_dep, cairo, pangocairo, libm])
@@ -119,7 +106,7 @@ if get_option('compositor')
     command: [wayland_scanner, 'server-header', '@INPUT@', '@OUTPUT@'])
 
   sfwc_sources = files(
-    'src/main.c', 'src/settings.c', 'src/animate.c', 'src/window.c', 'src/workspace.c',
+    'src/main.c', 'src/settings.c', 'src/window.c', 'src/workspace.c',
     'src/decoration.c', 'src/output.c', 'src/input.c', 'src/actions.c', 'src/cursor.c',
     'src/layers.c', 'src/lock.c', 'src/foreign.c', 'src/idle.c', 'src/plugin.c')
 
@@ -129,7 +116,7 @@ if get_option('compositor')
 
   sfwc_exe = executable('sfwc',
     sfwc_sources, xdg_shell_h, layer_shell_h, session_lock_h,
-    dependencies: [wlroots, wayland_server, xkbcommon, libm, libdrm, libdl, config_dep, theme_dep, template_dep, deco_dep, anim_dep, fire_dep],
+    dependencies: [wlroots, wayland_server, xkbcommon, libm, libdrm, libdl, config_dep, theme_dep, template_dep, deco_dep],
     include_directories: include_directories('include'),
     c_args: ['-Wno-unused-parameter', '-DSFWC_PLUGIN_DIR="' + plugin_dir + '"'],
     export_dynamic: false,

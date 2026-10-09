@@ -134,7 +134,6 @@ int main(int argc, char *argv[])
     wl_signal_add(&server.layer_shell->events.new_surface, &server.new_layer_surface);
 
     wl_list_init(&server.toplevels);
-    wl_list_init(&server.animations);
     wl_list_init(&server.plugins);
     server.xdg_shell = wlr_xdg_shell_create(server.display, 3);
     server.new_xdg_toplevel.notify = server_new_xdg_toplevel;
@@ -267,11 +266,6 @@ int main(int argc, char *argv[])
         wl_list_remove(&server.new_virtual_keyboard.link);
     }
 
-    struct animation *anim, *anim_tmp;
-    wl_list_for_each_safe(anim, anim_tmp, &server.animations, link) {
-        wl_list_remove(&anim->link);
-        free(anim);
-    }
     if (server.inotify_source) {
         wl_event_source_remove(server.inotify_source);
     }

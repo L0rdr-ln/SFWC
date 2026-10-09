@@ -12,7 +12,6 @@ src/settings.c     config + theme loading, live reload (inotify), theme template
 src/window.c       xdg-shell windows: placement, focus, maximize/fullscreen/minimize, popups
 src/workspace.c    workspaces: what is shown, switching, sending windows
 src/decoration.c   server-side decorations: titlebar, borders, shadow as scene buffers
-src/animate.c      open/close/move animations driven by the output frame callbacks
 src/output.c       monitors: layout, work area, "next output" helpers, frame scheduling
 src/layers.c       wlr-layer-shell: panels, wallpapers, launchers, exclusive zones
 src/input.c        seat, keyboards (xkb, repeat), virtual input (tests), selection requests
@@ -42,8 +41,7 @@ Design notes:
 - **Rendering** uses the wlroots scene graph (`wlr_scene`). Window = scene
   tree containing surface, decoration rects and shadow.
 - **Stacking**: a linked list of views from bottom to top; focusing raises.
-- **Animations** are small tweens (start, end, duration, easing) updated every
-  frame callback; they animate scene node position/opacity/scale.
+- **Animations** are a plugin (sfwc-plugins); the compositor only offers hooks for them.
 - **Config/themes** are parsed into plain structs; reload swaps the structs and
   re-applies them to existing views.
 
@@ -71,8 +69,10 @@ via rename), wired into the Wayland event loop with `wl_event_loop_add_fd`.
 `src/plugin.c` is the host side of the plugin API in `include/sfwc-plugin.h` (see PLUGINS.md):
 it loads `NAME.so` for every `load = NAME` in `[plugins]`, hands each plugin a `struct sfwc_host`
 (a table of functions, no internal structs), and calls its `frame` callback from
-`output_frame()` after the animations, `toplevel_unmap` from `toplevel_unmap()` before the close
-animation takes its picture, `reconfigure` from `reload_config()`, `fini` at shutdown.
+`output_frame()`; the window hooks (`toplevel_map`, `toplevel_commit`, `toplevel_unmap`,
+`toplevel_move`, `toplevel_cancel`, `toplevel_focus`) from `window.c`, `cursor.c` and `decoration.c`; the
+workspace hooks from `workspace.c`; the layer hooks from `layers.c`; `reconfigure` from
+`reload_config()`; `fini` at shutdown.
 `plugins/` holds two test plugins (`hooktest`, `badplugin`); real plugins live in the
 sfwc-plugins repository. wlroots is built or linked as a shared library so that plugins share
 the compositor's copy.

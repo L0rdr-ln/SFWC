@@ -26,14 +26,14 @@ struct passed around will do. Prefer wlroots' scene graph API for rendering.
 | `shipped-themes` | every `themes/*.theme`: loads without messages, readable contrast (title text 4.5:1, buttons 1.8:1), unique name, installed, has a preview and a README entry |
 | `theme-previews-current` | `docs/themes/*.svg` match the theme files (`tools/theme-preview.py`) |
 | `parser-fuzz` | random and mutated input through the config, theme and template code under ASan/UBSan |
-| `decoration-rendering`, `animation-math` | frame geometry/hit testing/drawing, easing and progress |
+| `decoration-rendering` | frame geometry/hit testing/drawing |
 | `compositor-client-*` | end-to-end: `tests/run_client_test.sh` starts sfwc headless and `tests/client_test.c` talks to it as a real Wayland client |
 
 The end-to-end modes: `single` (windows, popups, maximize/fullscreen/minimize, virtual keyboard and
 pointer, snapping, terminal, key repeat, `xdg-output`, live config reload, autostart, theme
 templates), `multi` (two outputs with different size/scale/position, follow-mouse, output actions),
 `nested` (sfwc as a window of another sfwc), `deco` (decorations checked pixel by pixel through
-screencopy, dragging, resizing, live theme reload), `anim` (open/close/move animations),
+screencopy, dragging, resizing, live theme reload), `plugins` (the plugin API with test plugins),
 `layers` (wlr-layer-shell), `workspaces`, `lock` (ext-session-lock).
 
 Input is injected with the wlroots virtual keyboard/pointer protocols. Those let any client

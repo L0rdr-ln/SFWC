@@ -2,7 +2,7 @@
   <img src="docs/logo.svg" alt="sfwc" width="520">
 </p>
 
-<p align="center"><b>A simple floating Wayland compositor</b> – themes, animations, workspaces and one config file, on wlroots.</p>
+<p align="center"><b>A simple floating Wayland compositor</b> – themes, workspaces, plugins and one config file, on wlroots.</p>
 
 <p align="center">
   <a href="https://github.com/L0rdr-ln/Simple-Floating-Wayland-Compositor/actions/workflows/build.yml"><img src="https://github.com/L0rdr-ln/Simple-Floating-Wayland-Compositor/actions/workflows/build.yml/badge.svg" alt="build"></a>
@@ -23,7 +23,7 @@
 
 A small, easy-to-configure **floating (stacking) Wayland compositor** on top of
 [wlroots](https://gitlab.freedesktop.org/wlroots/wlroots): overlapping windows with title bars,
-themes, animations and workspaces, configured with **one plain-text file** that reloads when you
+themes, workspaces and plugins, configured with **one plain-text file** that reloads when you
 save it.
 
 > **Status: alpha.** Everything below is implemented and covered by automated end-to-end tests
@@ -43,11 +43,9 @@ save it.
 - **One theme for the whole desktop** – the same file also colors your bar, launcher,
   terminal, notifications and lock screen through
   [templates](docs/THEMES.md#one-theme-for-the-whole-desktop-templating).
-- **Animations, Hyprland style** – popin, slide and slidefade on open and close, workspace slides,
-  a border color fade, your own Bézier curves, `animation = ...` lines that mostly work as in a
-  Hyprland config, or a ready-made `preset = hyprland`; Wayfire style **fire** (windows burn
-  away with flames), **squeeze** (TV off) and **zoom**; one switch
-  turns them all off.
+- **Animations as a plugin** – the `animations` plugin (sfwc-plugins) brings Hyprland style rules
+  and Bézier curves, popin/slide/slidefade, workspace slides, a border color fade and the Wayfire
+  style **fire**, **squeeze** and **zoom** effects. Not installed, the compositor stays minimal.
 - **Workspaces** (1–9), **layer-shell** bars/wallpapers/launchers (waybar, swaybg, fuzzel, ...),
   **screen lock** (swaylock), idle (swayidle), taskbars, clipboard managers, screenshots (grim).
 - **Simple configuration** – one INI-style file, sensible defaults, mistakes are reported with

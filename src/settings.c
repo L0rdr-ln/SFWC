@@ -298,3 +298,10 @@ void init_config(struct server *server, struct wl_event_loop *loop)
     }
     free(dir);
 }
+
+uint32_t now_msec(void)
+{
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (uint32_t)(ts.tv_sec * 1000 + ts.tv_nsec / 1000000);
+}

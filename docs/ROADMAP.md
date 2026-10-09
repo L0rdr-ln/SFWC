@@ -65,7 +65,7 @@ are roughly in build order; check them off as they land.
       buttons, drag to move, border/corner drag to resize, double-click to maximize
 - [x] Title text with cairo + pango
 - [x] Rounded corners and blurred shadows (on the frame; client content stays rectangular)
-- [x] Animation engine (`src/anim.c`): easing, time-based progress; open, close and move
+- [x] Animation engine (now the `animations` plugin in sfwc-plugins): easing, time-based progress; open, close and move
       animations, driven by the output frame callbacks
 - [x] Animations can be disabled (config, `SFWC_NO_ANIMATIONS=1`) and are switched off live
 - [x] `wlr-screencopy` exposed (also what the tests use to look at the screen)

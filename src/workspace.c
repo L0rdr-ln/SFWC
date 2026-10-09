@@ -36,11 +36,11 @@ void switch_workspace(struct server *server, int ws)
         return;
     }
     wlr_log(WLR_INFO, "workspace %d", ws + 1);
-    animations_finish_workspace(server);
     int old_ws = server->ws_current;
+    plugins_workspace_leaving(server, old_ws, ws);
     server->ws_current = ws;
     workspace_refresh(server);
-    animate_workspace_switch(server, old_ws, ws);
+    plugins_workspace_entered(server, old_ws, ws);
 }
 
 void move_to_workspace(struct toplevel *t, int ws)

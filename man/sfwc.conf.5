@@ -41,11 +41,11 @@ still applies. The file is re-read when it is saved (or with the reload-config a
 (x,y),
 .B enabled.
 .TP
-.B [animations]
-.B enabled, open, close
-(none, fade, fade-scale, slide),
-.B move, duration_ms, easing
-(linear, ease-in, ease-out, ease-in-out).
+.B [plugins]
+.B load
+(a plugin name, repeated), and
+.B [plugin:NAME]
+(settings for that plugin; \fB[animations]\fR is the section of the animations plugin).
 .TP
 .B [templates]
 .B enabled

@@ -5,25 +5,9 @@ Versions follow the roadmap milestones while the project is pre-1.0:
 
 ## Unreleased
 
-### Fixed
-- The picture of a closing window that fades out was drawn shifted by the window's own position
-  (wlroots reports buffer positions including the root node's offset); the old test only looked at
-  a maximized window.
-
 ### Added
-- Wayfire style window effects for open/close: `fire` (the window burns away from the bottom with
-  a particle flame, `fire_particles`, `fire_size`, `fire_color`), `squeeze` (CRT collapse) and
-  `zoom` (popin + fade). Test scenario `compositor-client-fx` and unit tests for the flames.
-- Hyprland style animations: named cubic Bézier curves (`bezier =`), `animation = type, on, speed,
-  curve, style` rules, `preset = hyprland | minimal | none`. Styles popin (real scaling around
-  the window's center), slide and slidefade for opening and closing windows, a separate fade
-  timeline, workspace slides (`slide`, `slidevert`, `slidefade`, `fade`), the frame colors fading
-  when focus changes (`border`), and layer surfaces fading or growing in. The old `open`,
-  `close`, `move`, `duration_ms` and `easing` keys keep working. See docs/CONFIGURATION.md.
-- Test scenario `compositor-client-hypr` (pixel checks of popin in/out, workspace slides in both
-  directions, slide left and the border color half way) and unit tests for the curves, the rules
-  and the color blend.
-- Plugin API (`include/sfwc-plugin.h`, docs/PLUGINS.md): `[plugins] load = NAME` loads
+- Plugin API (`include/sfwc-plugin.h`, docs/PLUGINS.md; the Hyprland and Wayfire style animations
+  and wobbly windows are plugins in the sfwc-plugins repository): `[plugins] load = NAME` loads
   `NAME.so` from `$SFWC_PLUGIN_PATH`, the user's data directory or the install directory;
   `[plugin:NAME]` sections hold the plugin's settings. Plugins get a frame callback, a view of the
   windows, settings, and are loaded, reconfigured and unloaded live on config reload. Missing,
@@ -36,6 +20,16 @@ Versions follow the roadmap milestones while the project is pre-1.0:
   by the sfwc-plugins CI against the real plugin.
 
 ### Changed
+- **Animations are now a plugin.** The Hyprland style rules and curves, popin/slide/slidefade,
+  workspace slides, the border fade, and the fire, squeeze and zoom effects moved to the
+  `animations` plugin in the sfwc-plugins repository; the compositor has no animation code any
+  more (windows appear, move and close at once unless the plugin is loaded). The `[animations]`
+  section is passed to the plugin as it is, so existing configs keep working after
+  `load = animations`. To make that possible the plugin API is now **version 2**: the plugin
+  table carries its size, and there are hooks for mapped, committed, moved and cancelled windows,
+  focus changes, workspace switches and layer surfaces, plus host functions for the output
+  boxes, all lines of a plugin's section, the clock, a "busy" mark and the frame color mix.
+  Plugins built for version 1 must be rebuilt.
 - Builds against **wlroots 0.20.0** (was 0.18.2). Needs wayland >= 1.24 and xkbcommon >= 1.8,
   which meson builds from `subprojects/` when the system's are older (new `xkbcommon.wrap`;
   `bison` and `flex` are needed for that). The only API change that affected the code was the

@@ -173,7 +173,6 @@ static void check_config_limits(const struct config *c)
     CHECK(c->gap >= 0 && c->gap <= 200);
     CHECK(c->snap_distance >= 0 && c->snap_distance <= 200);
     CHECK(c->repeat_rate >= 0 && c->repeat_rate <= 1000);
-    CHECK(c->anim_duration_ms >= 0 && c->anim_duration_ms <= 5000);
     CHECK(c->theme && c->terminal);
     for (size_t i = 0; i < c->n_binds; i++) {
         const struct keybind *b = &c->binds[i];

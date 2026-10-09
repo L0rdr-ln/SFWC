@@ -10,7 +10,7 @@ sfwc \- simple floating Wayland compositor
 .B sfwc
 is a small floating (stacking) Wayland compositor built on wlroots. It runs on a TTY
 (DRM/KMS, libseat) or as a window of another Wayland compositor or X11 server. It has
-server-side decorations, themes, animations, workspaces and layer-shell support for bars,
+server-side decorations, themes, workspaces, plugins and layer-shell support for bars,
 launchers and wallpapers, and is configured with one INI-style file, see
 .BR sfwc.conf (5).
 .SH OPTIONS
@@ -32,8 +32,11 @@ Path of the config file. Default: $XDG_CONFIG_HOME/sfwc/sfwc.conf, else ~/.confi
 .B SFWC_LOG_LEVEL
 silent, error, info (default) or debug.
 .TP
+.B SFWC_PLUGIN_PATH
+Colon separated directories to look for plugins (NAME.so) in, before the user's and the install directory.
+.TP
 .B SFWC_NO_ANIMATIONS
-Set to 1 to switch animations off.
+Read by the animations plugin: set to 1 to switch animations off.
 .TP
 .B SFWC_NO_THEME_APPLY
 Set to 1 to skip rendering the theme templates.

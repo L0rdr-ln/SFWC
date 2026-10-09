@@ -9,7 +9,6 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include "anim.h"
 #include "inifile.h"
 
 /* Modifier bits; identical to wlroots' WLR_MODIFIER_* (checked in main.c). */
@@ -39,54 +38,6 @@ enum action {
 
 enum focus_mode { FOCUS_CLICK, FOCUS_FOLLOW_MOUSE };
 
-/*
- * Hyprland-style animation rules: `animation = <type>, <on>, <speed>, <curve>[, <style>]`.
- * Speed is in units of 100 ms, as in Hyprland.
- */
-enum anim_type {
-    ANIMT_WINDOWS_IN,
-    ANIMT_WINDOWS_OUT,
-    ANIMT_WINDOWS_MOVE,
-    ANIMT_FADE_IN,
-    ANIMT_FADE_OUT,
-    ANIMT_BORDER,
-    ANIMT_WORKSPACES,
-    ANIMT_LAYERS_IN,
-    ANIMT_LAYERS_OUT,
-    ANIMT_COUNT,
-};
-
-enum anim_style {
-    ANIM_STYLE_DEFAULT, /* the type's own default */
-    ANIM_STYLE_POPIN,   /* grow/shrink around the center, `percent` = size at the start */
-    ANIM_STYLE_SLIDE,   /* move in from / out to the nearest screen edge (or `dir`) */
-    ANIM_STYLE_SLIDEVERT,     /* workspaces: slide up/down */
-    ANIM_STYLE_SLIDEFADE,     /* slide by `percent` of the size while fading */
-    ANIM_STYLE_SLIDEFADEVERT, /* workspaces: slidefade up/down */
-    ANIM_STYLE_FADE,
-    ANIM_STYLE_ZOOM,    /* popin that also fades */
-    ANIM_STYLE_SQUEEZE, /* collapse to a line, then to nothing, like a switched off TV */
-    ANIM_STYLE_FIRE,    /* burn away from the bottom, with flames */
-};
-
-enum anim_dir { ANIM_DIR_AUTO, ANIM_DIR_LEFT, ANIM_DIR_RIGHT, ANIM_DIR_TOP, ANIM_DIR_BOTTOM };
-
-struct anim_rule {
-    bool set;  /* given in the config (otherwise the legacy keys / the global rule apply) */
-    bool on;
-    double speed; /* x 100 ms */
-    char curve[24];
-    enum anim_style style;
-    int percent; /* 0 = the style's default */
-    enum anim_dir dir;
-};
-
-#define MAX_CURVES 16
-struct anim_curve_def {
-    char name[24];
-    struct anim_curve curve;
-};
-
 struct keybind {
     uint32_t mods;
     uint32_t sym; /* lower-case base-level keysym */
@@ -103,7 +54,8 @@ struct mousebind {
 /* [plugin:NAME]: free-form settings that only the plugin itself understands */
 struct plugin_cfg {
     char *name;
-    char **keys, **values;
+    char **keys, **values; /* in file order; a key may repeat (lists) */
+    int *lines;
     size_t n;
 };
 
@@ -136,20 +88,6 @@ struct config {
         /* [output:NAME] */
     struct output_cfg *outputs;
     size_t n_outputs;
-    /* [animations] (parsed now, used from the animation milestone on) */
-    bool anim_enabled;
-    char anim_open[24], anim_close[24], anim_easing[24];
-    bool anim_move, anim_resize;
-    int anim_duration_ms;
-    /* [animations] bezier = ..., animation = ... */
-    struct anim_curve_def curves[MAX_CURVES];
-    int n_curves;
-    struct anim_rule anim[ANIMT_COUNT];
-    struct anim_rule anim_global; /* `animation = global, ...`: default for types without a rule */
-    /* the `fire` style */
-    int fire_particles; /* at most this many flames at a time */
-    int fire_size;      /* radius of a flame in px */
-    uint32_t fire_color; /* 0xRRGGBB, the main color of the flames */
     /* [keybinds] [mouse] [autostart] */
     struct keybind *binds;
     size_t n_binds;
@@ -200,15 +138,12 @@ char *config_default_path(void);
 
 /* A plugin name is 1-32 characters of a-z, 0-9, '_' and '-': it becomes part of a file name. */
 bool config_valid_plugin_name(const char *name);
-/* The value of `key` in [plugin:NAME], or NULL. */
+/* The value of `key` in [plugin:NAME] (the last one if repeated), or NULL. The section [animations]
+ * is read as [plugin:animations]. */
 const char *config_plugin_get(const struct config *c, const char *plugin, const char *key);
+/* The section of a plugin, or NULL if the config has none. */
+const struct plugin_cfg *config_plugin_section(const struct config *c, const char *plugin);
 
 const char *action_name(enum action a);
-
-/* The curve called `name`: defined with `bezier = ...` in the config, else a built-in one. */
-bool config_find_curve(const struct config *c, const char *name, struct anim_curve *out);
-
-/* The rule for `type`: its own, else the global one (with the type's style), else false. */
-bool config_anim_rule(const struct config *c, enum anim_type type, struct anim_rule *out);
 
 #endif

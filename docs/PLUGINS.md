@@ -11,6 +11,7 @@ them:
 | plugin | what it does |
 |---|---|
 | `wobbly` | windows wobble like jelly when they move |
+| `animations` | open/close/move animations, workspace slides, border fade, fire, squeeze, zoom (Hyprland style rules in `[animations]`) |
 
 Build and install them with `meson setup build && meson install -C build` there; each plugin's
 settings are described in that repository's README.
@@ -88,20 +89,35 @@ copy. `plugins/hooktest/hooktest.c` is a complete small plugin; `wobbly` in sfwc
 
 ### Callbacks
 
+Everything is optional except `init`. Set `struct_size` to `sizeof(struct sfwc_plugin)`: callbacks
+beyond the size the compositor knows are ignored, and a table that ends early just lacks the later
+callbacks.
+
 | callback | when |
 |---|---|
 | `init(host)` | after loading; return false to refuse |
 | `fini(host)` | before unloading (config change or shutdown): remove everything you added to the scene graph and the event loop |
 | `reconfigure(host)` | the config was reloaded: read your settings again |
 | `frame(host, now_ms)` | before every output frame is committed |
-| `toplevel_unmap(host, t)` | a window goes away (or is hidden by being closed): drop your references; restore anything you changed on its buffers, because the close animation takes its picture right after |
+| `toplevel_map(host, t)` | a window was mapped, placed and focused; its frame exists |
+| `toplevel_commit(host, t)` | the client committed new content of a mapped window (often: be quick) |
+| `toplevel_unmap(host, t)` | a window goes away: drop your references. It runs while the window's pictures still exist (close animations copy them here); restore anything you changed on its buffers |
+| `toplevel_move(host, t, from, to)` | the compositor moves the window (maximize, restore, next output). Return true to animate it yourself: the tree stays at `from`, you end exactly at `to` |
+| `toplevel_cancel(host, t)` | something takes the window over (a drag starts, another move): finish what you animate on it at once |
+| `toplevel_focus(host, t, from, to)` | the frame colors should go from the look `from` to `to` (0 unfocused, 1 focused). Return true and call `toplevel_set_focus_mix()` each frame until you reach `to` |
+| `workspace_leaving(host, old, new)` / `workspace_entered(host, old, new)` | around a workspace switch: first finish the previous switch's animation; after the windows were shown and hidden for the new workspace, enable the old windows' trees again to let them slide out and disable them when done |
+| `layer_map(host, tree)` / `layer_unmap(host, tree)` | a layer-shell surface (panel, launcher, notification) appeared / goes away |
 
 ### Host functions
 
-`windows_tree`, `cursor_position`, `config_get`, `request_frame`, `toplevel_next`,
-`toplevel_info` and `log`; see the header for what each does. Windows are opaque handles; the
-information is copied into a `struct sfwc_toplevel_info` (outer box, scene tree, shadow and frame
-buffers, the client's inner box, visible/maximized/fullscreen/moving/busy).
+`windows_tree`, `cursor_position`, `config_get` (last value of a key), `config_count` /
+`config_entry` (all lines of the section in order, with line numbers: for lists such as animation
+rules), `request_frame`, `toplevel_next`, `toplevel_info`, `output_box_at`, `current_workspace`,
+`now_ms`, `toplevel_busy` (+1/-1 while you animate a window: other plugins see `info.busy` and
+keep out of the way), `toplevel_set_focus_mix` and `log`; see the header for what each does.
+Windows are opaque handles; the information is copied into a `struct sfwc_toplevel_info` (outer
+box, scene tree, shadow and frame buffers, the client's inner box, visible/shown/minimized/
+maximized/fullscreen/moving/busy, workspace).
 
 ### Rules
 
@@ -109,7 +125,8 @@ buffers, the client's inner box, visible/maximized/fullscreen/moving/busy).
   output, so keep it cheap.
 - A plugin must not keep pointers into the host's data past the call that returned them, except
   windows until their `toplevel_unmap`.
-- The API only grows: new fields are appended and `host->struct_size` tells how much exists.
-  Anything removed or changed in meaning bumps `SFWC_PLUGIN_API_VERSION`.
+- The API only grows: new fields and callbacks are appended and `host->struct_size` /
+  `info.size` tell how much exists. Anything removed or changed in meaning bumps
+  `SFWC_PLUGIN_API_VERSION` (now 2; version 1 plugins are refused and must be rebuilt).
 - The wlroots scene graph types are part of the interface. wlroots has no stable ABI, so a
   compositor update to a new wlroots needs plugins rebuilt.

@@ -48,8 +48,12 @@ CONF
     printf 'bg=@colors.background@ width=@geometry.border_width@\n' >"$TMP/tpl/probe.txt.in"
     export SFWC_TEMPLATES="$TMP/tpl"
     ;;
-layers|workspaces|lock)
+lock)
     : >"$SFWC_CONFIG"
+    ;;
+layers|workspaces)
+    # the test plugin sees the workspace switches and the layer surfaces
+    printf '[plugins]\nload = hooktest\n' >"$SFWC_CONFIG"
     ;;
 plugins)
     # The test plugin logs what the host tells it. One plugin does not exist, one refuses to
@@ -59,9 +63,13 @@ plugins)
 load = hooktest
 load = nonexistent
 load = badplugin
+load = tinyplugin
+load = oldstyle
 load = ../escape
 [plugin:hooktest]
 greeting = hello
+mark = one
+mark = two
 CONF
     ;;
 wobbly)
@@ -269,13 +277,17 @@ lock)
     ;;
 workspaces)
     grep -q "workspace 2" "$LOG" || fail "the compositor never switched workspace"
+    grep -q "plugin hooktest: workspace leaving 0 -> 1 (current 0)" "$LOG" || fail "workspace_leaving was not called before the switch"
+    grep -q "plugin hooktest: workspace entered 0 -> 1 (current 1)" "$LOG" || fail "workspace_entered was not called after the switch"
     ;;
 layers)
+    grep -q "plugin hooktest: layer mapped tree=1" "$LOG" || fail "layer_map was not called"
+    grep -q "plugin hooktest: layer unmapped" "$LOG" || fail "layer_unmap was not called"
     grep -q "layer surface mapped: namespace=bar" "$LOG" || fail "the panel was never mapped"
     grep -q "layer surface unmapped: namespace=launcher" "$LOG" || fail "the launcher was never unmapped"
     ;;
 plugins)
-    grep -q "plugin hooktest: init api=1 greeting=hello missing=(none)" "$LOG" || fail "the test plugin was not initialised with its settings"
+    grep -q "plugin hooktest: init api=2 greeting=hello missing=(none)" "$LOG" || fail "the test plugin was not initialised with its settings"
     grep -q "plugin hooktest loaded" "$LOG" || fail "the test plugin was not reported as loaded"
     grep -q "plugin hooktest: first frame" "$LOG" || fail "the plugin never got a frame callback"
     grep -q "plugin hooktest: window outer=48,48 .* visible=1 tree=1" "$LOG" || fail "the plugin did not see the window correctly"
@@ -283,6 +295,15 @@ plugins)
     grep -q "plugin hooktest: fini after" "$LOG" || fail "the plugin was not shut down cleanly"
     grep -q "plugin nonexistent: nonexistent.so not found" "$LOG" || fail "a missing plugin was not reported"
     grep -q "plugin badplugin: not loading .*another plugin API version" "$LOG" || fail "a plugin with the wrong API version was accepted"
+    grep -q "plugin tinyplugin: not loading .*callback table is too small" "$LOG" || fail "a plugin with a too small callback table was accepted"
+    grep -q "init was called although the table" "$LOG" && fail "init of a plugin with a too small table ran"
+    grep -q "plugin oldstyle: init of a plugin with a short callback table" "$LOG" || fail "a plugin with a short callback table was not loaded"
+    grep -q "plugin oldstyle: window unmapped (short table)" "$LOG" || fail "the callbacks of a short table were not called"
+    grep -q "plugin hooktest: setting mark=one (line 10)" "$LOG" || fail "repeated settings were not passed in order with their lines"
+    grep -q "plugin hooktest: setting mark=two (line 11)" "$LOG" || fail "the second repeated setting is missing"
+    grep -q "plugin hooktest: window mapped at 48,48 workspace=0 shown=1" "$LOG" || fail "the map callback did not see the window"
+    grep -q "plugin hooktest: first commit" "$LOG" || fail "the commit callback was never called"
+    grep -q "plugin hooktest: workspace 0, clock ticks" "$LOG" || fail "current_workspace / now_ms do not work"
     grep -q "init was called although" "$LOG" && fail "init of a refused plugin ran"
     grep -q "load: '../escape' is not a plugin name" "$LOG" || fail "a path as plugin name was not rejected"
     ;;

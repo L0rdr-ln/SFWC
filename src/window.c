@@ -16,13 +16,13 @@ struct wlr_box toplevel_geometry(struct toplevel *t)
 /* Move the window (content top-left to x, y), with a tween when `animate` is set. */
 void toplevel_move_to_ex(struct toplevel *t, int x, int y, bool animate)
 {
-    animations_cancel(t, true);
+    plugins_toplevel_cancel(t);
     struct wlr_box geo = {0};
     geo = t->xdg_toplevel->base->geometry; /* wlroots 0.20: kept up to date on commit */
     int nx = x - geo.x, ny = y - geo.y;
     if (animate && t->mapped &&
         (abs(nx - t->scene_tree->node.x) > 2 || abs(ny - t->scene_tree->node.y) > 2) &&
-        animate_move(t, t->scene_tree->node.x, t->scene_tree->node.y, nx, ny)) {
+        plugins_toplevel_move(t, t->scene_tree->node.x, t->scene_tree->node.y, nx, ny)) {
         return;
     }
     wlr_scene_node_set_position(&t->scene_tree->node, nx, ny);
@@ -258,8 +258,7 @@ static void toplevel_map(struct wl_listener *listener, void *data)
     fth_create(toplevel);
     focus_toplevel(toplevel);
     frame_refresh(toplevel);
-    animate_open(toplevel);
-    snapshot_refresh(toplevel);
+    plugins_toplevel_map(toplevel);
 }
 
 static void toplevel_unmap(struct wl_listener *listener, void *data)
@@ -267,9 +266,7 @@ static void toplevel_unmap(struct wl_listener *listener, void *data)
     struct toplevel *toplevel = wl_container_of(listener, toplevel, unmap);
     wlr_log(WLR_INFO, "window unmapped");
     struct server *server = toplevel->server;
-    plugins_toplevel_unmap(toplevel); /* before the close animation takes its picture */
-    animations_cancel(toplevel, false);
-    animate_close(toplevel);
+    plugins_toplevel_unmap(toplevel); /* while the window still has its picture (close animations) */
     if (toplevel == server->grabbed_toplevel) {
         reset_cursor_mode(server);
     }
@@ -301,7 +298,9 @@ void toplevel_commit(struct wl_listener *listener, void *data)
         }
     }
     frame_refresh(toplevel); /* cheap when size, focus and title did not change */
-    snapshot_refresh(toplevel);
+    if (toplevel->mapped) {
+        plugins_toplevel_commit(toplevel);
+    }
 }
 
 static void toplevel_destroy(struct wl_listener *listener, void *data)
@@ -320,10 +319,6 @@ static void toplevel_destroy(struct wl_listener *listener, void *data)
     if (toplevel->decoration) {
         wl_list_remove(&toplevel->deco_request_mode.link);
         wl_list_remove(&toplevel->deco_destroy.link);
-    }
-    animations_cancel(toplevel, false);
-    if (toplevel->last_frame) {
-        wlr_scene_node_destroy(&toplevel->last_frame->node);
     }
     free(toplevel->frame_title);
     free(toplevel);

@@ -47,11 +47,6 @@ if bash.found()
     args: ['-n', meson.project_source_root() / 'tools/try-sfwc.sh'])
 endif
 
-test_fire = executable('test_fire', 'test_fire.c', dependencies: [fire_dep])
-test('fire-simulation', test_fire)
-
-test_anim = executable('test_anim', 'test_anim.c', dependencies: [anim_dep, libm])
-test('animation-math', test_anim)
 
 if get_option('compositor')
   # End-to-end: run sfwc headless and talk to it with a real Wayland client.
@@ -117,7 +112,7 @@ if get_option('compositor')
 
   client_test = executable('client_test', 'client_test.c', client_sources,
     dependencies: client_deps, c_args: client_args)
-  foreach mode : ['single', 'multi', 'nested', 'deco', 'anim', 'layers', 'workspaces', 'lock', 'hypr', 'fx', 'plugins']
+  foreach mode : ['single', 'multi', 'nested', 'deco', 'layers', 'workspaces', 'lock', 'plugins']
     test('compositor-client-' + mode, find_program('bash'),
       args: [files('run_client_test.sh'), sfwc_exe, client_test, mode],
       env: {'SFWC_PLUGIN_PATH': meson.project_build_root() / 'plugins'},

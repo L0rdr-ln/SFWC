@@ -81,7 +81,7 @@ void begin_interactive(struct toplevel *toplevel, enum cursor_mode mode, uint32_
                                                wlr_surface_get_root_surface(focused))) {
         return; /* a client may only start a grab while the pointer is over its window */
     }
-    animations_cancel(toplevel, true); /* the window follows the pointer from where it is */
+    plugins_toplevel_cancel(toplevel); /* the window follows the pointer from where it is */
     server->grabbed_toplevel = toplevel;
     server->cursor_mode = mode;
 

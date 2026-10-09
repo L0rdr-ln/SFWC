@@ -158,7 +158,6 @@ void focus_next_output(struct server *server)
 static void output_frame(struct wl_listener *listener, void *data)
 {
     struct output *output = wl_container_of(listener, output, frame);
-    animations_tick(output->server);
     plugins_frame(output->server, now_msec());
     struct wlr_scene_output *scene_output =
         wlr_scene_get_scene_output(output->server->scene, output->wlr_output);
