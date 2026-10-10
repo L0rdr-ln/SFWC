@@ -87,6 +87,8 @@ struct app {
     struct wp_fractional_scale_manager_v1 *fscale_mgr;
     struct wp_cursor_shape_manager_v1 *shape_mgr;
     struct xdg_activation_v1 *activation;
+    uint32_t next_color2;
+    int next_split_x; /* the next layer surface gets this colour right of this x, if not 0 */
     const char *next_app_id; /* set on the next window that is opened, if not NULL */
     struct zwp_pointer_constraints_v1 *constraints;
     struct zwp_relative_pointer_manager_v1 *rel_mgr;
@@ -164,6 +166,33 @@ static struct wl_buffer *make_buffer(struct wl_shm *shm, int w, int h, uint32_t 
     }
     for (int i = 0; i < w * h; i++) {
         data[i] = color;
+    }
+    munmap(data, size);
+    struct wl_shm_pool *pool = wl_shm_create_pool(shm, fd, size);
+    struct wl_buffer *buf = wl_shm_pool_create_buffer(pool, 0, w, h, stride, WL_SHM_FORMAT_ARGB8888);
+    wl_shm_pool_destroy(pool);
+    close(fd);
+    return buf;
+}
+
+/* Like make_buffer, but the part right of `split_x` has `color2`. */
+static struct wl_buffer *make_buffer_split(struct wl_shm *shm, int w, int h, uint32_t color,
+                                           uint32_t color2, int split_x)
+{
+    int stride = w * 4;
+    int size = stride * h;
+    int fd = memfd_create("sfwc-test-buffer", MFD_CLOEXEC);
+    if (fd < 0 || ftruncate(fd, size) < 0) {
+        fail("cannot create shm file");
+    }
+    uint32_t *data = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+    if (data == MAP_FAILED) {
+        fail("mmap failed");
+    }
+    for (int y = 0; y < h; y++) {
+        for (int x = 0; x < w; x++) {
+            data[y * w + x] = x < split_x ? color : color2;
+        }
     }
     munmap(data, size);
     struct wl_shm_pool *pool = wl_shm_create_pool(shm, fd, size);
@@ -2446,6 +2475,8 @@ struct lay {
     struct zwlr_layer_surface_v1 *ls;
     struct wl_buffer *buf;
     uint32_t color;
+    uint32_t color2; /* if split_x > 0: the colour right of it */
+    int split_x;
     int configured, closed, w, h;
 };
 
@@ -2455,7 +2486,9 @@ static void lay_configure(void *data, struct zwlr_layer_surface_v1 *ls, uint32_t
     struct lay *l = data;
     zwlr_layer_surface_v1_ack_configure(ls, serial);
     if (w > 0 && h > 0 && (l->w != (int)w || l->h != (int)h)) {
-        struct wl_buffer *nb = make_buffer(l->app->shm, w, h, l->color);
+        struct wl_buffer *nb = l->split_x > 0
+                                   ? make_buffer_split(l->app->shm, w, h, l->color, l->color2, l->split_x)
+                                   : make_buffer(l->app->shm, w, h, l->color);
         wl_surface_attach(l->surface, nb, 0, 0);
         wl_surface_commit(l->surface);
         if (l->buf) {
@@ -2483,6 +2516,9 @@ static void lay_open(struct app *app, struct wl_display *d, struct lay *l, uint3
     memset(l, 0, sizeof *l);
     l->app = app;
     l->color = color;
+    l->color2 = app->next_color2;
+    l->split_x = app->next_split_x;
+    app->next_split_x = 0;
     l->surface = wl_compositor_create_surface(app->compositor);
     l->ls = zwlr_layer_shell_v1_get_layer_surface(app->layer_shell, l->surface, NULL, layer, ns);
     zwlr_layer_surface_v1_add_listener(l->ls, &lay_listener, l);
@@ -2589,6 +2625,49 @@ static void run_layers(struct app *app, struct wl_display *d)
 }
 #endif
 
+/* ----------------------------------------------------- scenario: blur */
+
+static void run_blur(struct app *app, struct wl_display *d)
+{
+    if (!app->layer_shell) {
+        fail("compositor does not offer wlr-layer-shell");
+    }
+    app->ext_w = app->out_w;
+    app->ext_h = app->out_h;
+    setup_virtual_devices(app, d, 0);
+
+    /* a wallpaper that is blue left of x=148 and red right of it, and a translucent black window
+     * (25%) at 48,48 that spans the edge: the edge behind the window must be frosted */
+    struct lay wall;
+    app->next_color2 = 0xffe04020;
+    app->next_split_x = 148;
+    lay_open(app, d, &wall, ZWLR_LAYER_SHELL_V1_LAYER_BACKGROUND,
+             ZWLR_LAYER_SURFACE_V1_ANCHOR_TOP | ZWLR_LAYER_SURFACE_V1_ANCHOR_BOTTOM |
+                 ZWLR_LAYER_SURFACE_V1_ANCHOR_LEFT | ZWLR_LAYER_SURFACE_V1_ANCHOR_RIGHT,
+             0, 0, -1, ZWLR_LAYER_SURFACE_V1_KEYBOARD_INTERACTIVITY_NONE, 0xff2040e0, "wallpaper");
+    struct win a;
+    win_open_ex(app, d, &a, "frosted", 0x40000000u, 0, 1);
+    wait_for(d, &app->kb_enter, 3000, "keyboard focus for the window");
+    sleep_ms(500); /* the plugin blurs the wallpaper and places the piece behind the window */
+    struct image img = capture_screen(app, d);
+    uint32_t outside = img_px(&img, 146, 300), left = img_px(&img, 146, 98), right = img_px(&img, 150, 98);
+    int outside_r = (outside >> 16) & 0xff, left_r = (left >> 16) & 0xff, right_r = (right >> 16) & 0xff;
+    free(img.px);
+    char msg[200];
+    snprintf(msg, sizeof msg, "red channel: wallpaper %d, behind the window left of the edge %d, right of it %d",
+             outside_r, left_r, right_r);
+    if (outside_r > 0x30) {
+        fail(msg); /* the wallpaper itself must stay sharp */
+    }
+    /* sharp, the window would show 25% black over blue (red 24) or over red (red 168); frosted,
+     * the two sides are nearly the same mix */
+    if (left_r < 60 || right_r > 140 || right_r - left_r > 60) {
+        fail(msg);
+    }
+    win_destroy(d, &a);
+    lay_close(d, &wall);
+}
+
 /* --------------------------------------------------------------- main */
 
 int main(int argc, char **argv)
@@ -2605,9 +2684,10 @@ int main(int argc, char **argv)
     int plugins = !strcmp(mode, "plugins");
     int wobbly = !strcmp(mode, "wobbly");
     int protocols = !strcmp(mode, "protocols");
-    if (!multi && !deco && !anim && !layers && !workspaces && !lock && !hypr && !fx && !plugins && !wobbly && !protocols &&
+    int blur = !strcmp(mode, "blur");
+    if (!multi && !deco && !anim && !layers && !workspaces && !lock && !hypr && !fx && !plugins && !wobbly && !protocols && !blur &&
         strcmp(mode, "single") != 0) {
-        fail("unknown mode (use single, multi, deco, anim, layers, workspaces, lock, hypr, fx, plugins, wobbly or protocols)");
+        fail("unknown mode (use single, multi, deco, anim, layers, workspaces, lock, hypr, fx, plugins, wobbly, protocols or blur)");
     }
 
     struct app app = {0};
@@ -2674,6 +2754,16 @@ int main(int argc, char **argv)
 #endif
     }
 
+    if (blur) {
+#ifdef HAVE_VIRTUAL_INPUT
+        run_blur(&app, display);
+        wl_display_disconnect(display);
+        printf("client_test blur: OK\n");
+        return 0;
+#else
+        fail("the blur scenario needs the wlroots protocol files");
+#endif
+    }
     if (protocols) {
 #ifdef HAVE_VIRTUAL_INPUT
         run_protocols(&app, display);

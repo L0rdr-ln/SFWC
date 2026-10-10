@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Starts sfwc on the headless backend, runs the test client against it and checks the
 # compositor's log and side effects.
-# Usage: run_client_test.sh <sfwc> <client_test> [single|multi|nested|deco|anim|layers|workspaces|lock|hypr|fx|plugins|wobbly|protocols]
+# Usage: run_client_test.sh <sfwc> <client_test> [single|multi|nested|deco|anim|layers|workspaces|lock|hypr|fx|plugins|wobbly|protocols|blur]
 #   single: one output, input, snapping, live config reload, autostart, terminal
 #   multi:  two outputs (different size/scale/position), follow-mouse, output actions,
 #           reload-config key (config file watching is switched off)
@@ -82,6 +82,15 @@ load = wobbly
 [plugin:wobbly]
 spring = 4
 friction = 4
+CONF
+    ;;
+blur)
+    # Needs the blur plugin of the sfwc-plugins repository (run by that repository's CI)
+    cat >"$SFWC_CONFIG" <<'CONF'
+[plugins]
+load = blur
+[plugin:blur]
+radius = 24
 CONF
     ;;
 fx)
@@ -336,6 +345,9 @@ plugins)
 wobbly)
     grep -q "plugin wobbly loaded" "$LOG" || fail "the wobbly plugin was not loaded"
     grep -q "plugin wobbly: swinging from 48,48 to 348,48" "$LOG" || fail "the window never started to wobble"
+    ;;
+blur)
+    grep -q "plugin blur: wallpaper .* blurred" "$LOG" || fail "the blur plugin never blurred the wallpaper"
     ;;
 fx)
     grep -q "window unmapped" "$LOG" || fail "no window was ever closed"
