@@ -243,6 +243,27 @@ static void toplevel_set_title(struct wl_listener *listener, void *data)
     fth_sync(toplevel);
 }
 
+/* [rule:APP_ID]: where the window opens, how big, on which workspace. */
+static void apply_rule_before_focus(struct toplevel *t, const struct rule_cfg *rule)
+{
+    struct server *server = t->server;
+    wlr_log(WLR_INFO, "rule for %s applies", rule->app_id);
+    if (rule->workspace > 0) {
+        t->ws = (rule->workspace - 1 < server->config.workspaces) ? rule->workspace - 1 : server->config.workspaces - 1;
+        wlr_scene_node_set_enabled(&t->scene_tree->node, toplevel_shown(t));
+    }
+    if (rule->has_size) {
+        wlr_xdg_toplevel_set_size(t->xdg_toplevel, rule->w, rule->h);
+    }
+    if (rule->has_pos) {
+        struct deco_insets ins = toplevel_insets(t);
+        toplevel_move_to(t, rule->x + ins.left, rule->y + ins.top);
+    }
+    if (rule->maximized == 1) {
+        toplevel_apply_state(t, true, false);
+    }
+}
+
 static void toplevel_map(struct wl_listener *listener, void *data)
 {
     struct toplevel *toplevel = wl_container_of(listener, toplevel, map);
@@ -256,9 +277,19 @@ static void toplevel_map(struct wl_listener *listener, void *data)
     }
     wl_list_insert(&toplevel->server->toplevels, &toplevel->link);
     fth_create(toplevel);
-    focus_toplevel(toplevel);
+    const struct rule_cfg *rule = config_find_rule(&toplevel->server->config, toplevel->xdg_toplevel->app_id,
+                                                   toplevel->xdg_toplevel->title);
+    if (rule) {
+        apply_rule_before_focus(toplevel, rule);
+    }
+    if ((!rule || rule->focus != 0) && toplevel_shown(toplevel)) {
+        focus_toplevel(toplevel);
+    }
     frame_refresh(toplevel);
     plugins_toplevel_map(toplevel);
+    if (rule && rule->minimized == 1) {
+        toplevel_set_minimized(toplevel, true);
+    }
 }
 
 static void toplevel_unmap(struct wl_listener *listener, void *data)

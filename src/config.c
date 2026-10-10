@@ -279,6 +279,11 @@ void config_finish(struct config *c)
         free(c->outputs[i].name);
     }
     free(c->outputs);
+    for (size_t i = 0; i < c->n_rules; i++) {
+        free(c->rules[i].app_id);
+        free(c->rules[i].title);
+    }
+    free(c->rules);
     clear_binds(c);
     clear_mbinds(c);
     clear_autostart(c);
@@ -723,6 +728,60 @@ static void handle_output(struct loader *l, const char *name, const char *key, c
     }
 }
 
+static void handle_rule(struct loader *l, const char *app_id, const char *key, const char *v)
+{
+    if (!*app_id) {
+        report(l, CONFIG_ERROR, "section [rule:] needs an app id, e.g. [rule:org.mozilla.firefox]");
+        return;
+    }
+    struct config *c = l->c;
+    struct rule_cfg *r = NULL;
+    for (size_t i = 0; i < c->n_rules; i++) {
+        if (!strcmp(c->rules[i].app_id, app_id)) {
+            r = &c->rules[i];
+            break;
+        }
+    }
+    if (!r) {
+        c->rules = xrealloc(c->rules, (c->n_rules + 1) * sizeof *c->rules);
+        r = &c->rules[c->n_rules++];
+        *r = (struct rule_cfg){.app_id = xstrdup(app_id), .maximized = -1, .minimized = -1, .focus = -1};
+    }
+    int x, y;
+    char extra;
+    bool b;
+    if (!strcmp(key, "workspace")) {
+        set_int(l, key, v, 1, 9, &r->workspace);
+    } else if (!strcmp(key, "position")) {
+        if (sscanf(v, " %d , %d %c", &x, &y, &extra) == 2) {
+            r->has_pos = true;
+            r->x = x;
+            r->y = y;
+        } else {
+            report(l, CONFIG_ERROR, "position: '%s' is not 'x,y'", v);
+        }
+    } else if (!strcmp(key, "size")) {
+        if (sscanf(v, " %d , %d %c", &x, &y, &extra) == 2 && x > 0 && y > 0) {
+            r->has_size = true;
+            r->w = x;
+            r->h = y;
+        } else {
+            report(l, CONFIG_ERROR, "size: '%s' is not 'width,height'", v);
+        }
+    } else if (!strcmp(key, "title")) {
+        free(r->title);
+        r->title = *v ? xstrdup(v) : NULL;
+    } else if (!strcmp(key, "maximized") || !strcmp(key, "minimized") || !strcmp(key, "focus")) {
+        if (parse_bool(v, &b)) {
+            *(!strcmp(key, "maximized") ? &r->maximized : !strcmp(key, "minimized") ? &r->minimized : &r->focus) = b;
+        } else {
+            report(l, CONFIG_ERROR, "%s: '%s' is not a boolean (use true/false)", key, v);
+        }
+    } else {
+        report(l, CONFIG_WARNING, "unknown key '%s' in [rule:%s]", key, app_id);
+    }
+}
+
 static void handle_plugins(struct loader *l, const char *key, const char *v)
 {
     struct config *c = l->c;
@@ -786,6 +845,8 @@ static int config_ini_cb(void *user, const char *section, const char *name, cons
         handle_input(l, &l->c->touchpad, section, name, value);
     } else if (!strncmp(section, "output:", 7)) {
         handle_output(l, section + 7, name, value);
+    } else if (!strncmp(section, "rule:", 5)) {
+        handle_rule(l, section + 5, name, value);
     } else if (!strcmp(section, "plugins")) {
         handle_plugins(l, name, value);
     } else if (!strncmp(section, "plugin:", 7)) {
@@ -889,6 +950,20 @@ const struct keybind *config_find_keybind(const struct config *c, uint32_t mods,
     for (size_t i = c->n_binds; i-- > 0;) { /* last definition wins */
         if (c->binds[i].sym == sym && c->binds[i].mods == mods) {
             return &c->binds[i];
+        }
+    }
+    return NULL;
+}
+
+const struct rule_cfg *config_find_rule(const struct config *c, const char *app_id, const char *title)
+{
+    if (!app_id) {
+        return NULL;
+    }
+    for (size_t i = 0; i < c->n_rules; i++) {
+        const struct rule_cfg *r = &c->rules[i];
+        if (!strcmp(r->app_id, app_id) && (!r->title || (title && strstr(title, r->title)))) {
+            return r;
         }
     }
     return NULL;

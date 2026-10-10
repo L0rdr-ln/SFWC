@@ -243,6 +243,41 @@ static void test_input(void)
     config_finish(&c);
 }
 
+static void test_rules(void)
+{
+    struct config c;
+    struct log l = {0};
+    config_init_defaults(&c);
+    CHECK(c.n_rules == 0 && !config_find_rule(&c, "x", "y"));
+    CHECK(config_load_string(&c,
+                             "[rule:org.test.App]\n"      /* 1 */
+                             "workspace = 3\n"            /* 2 */
+                             "position = 100, 50\n"       /* 3 */
+                             "size = 640,480\n"           /* 4 */
+                             "maximized = false\n"        /* 5 */
+                             "focus = no\n"               /* 6 */
+                             "workspace = 12\n"           /* 7 bad, keeps 3 */
+                             "size = big\n"               /* 8 bad */
+                             "colour = red\n"             /* 9 unknown */
+                             "[rule:org.test.App]\n"      /* 10 merges */
+                             "title = Settings\n"
+                             "minimized = true\n"
+                             "[rule:]\n"                  /* 13 */
+                             "workspace = 2\n",
+                             collect, &l));
+    CHECK(c.n_rules == 1);
+    CHECK(has_msg(&l, CONFIG_ERROR, 7, "workspace"));
+    CHECK(has_msg(&l, CONFIG_ERROR, 8, "size"));
+    CHECK(has_msg(&l, CONFIG_WARNING, 9, "unknown key 'colour' in [rule:org.test.App]"));
+    CHECK(has_msg(&l, CONFIG_ERROR, 14, "needs an app id"));
+    const struct rule_cfg *r = config_find_rule(&c, "org.test.App", "App Settings");
+    CHECK(r && r->workspace == 3 && r->has_pos && r->x == 100 && r->y == 50);
+    CHECK(r && r->has_size && r->w == 640 && r->h == 480 && r->maximized == 0 && r->focus == 0 && r->minimized == 1);
+    CHECK(!config_find_rule(&c, "org.test.App", "Main window")); /* the title does not match */
+    CHECK(!config_find_rule(&c, "org.other", "Settings") && !config_find_rule(&c, NULL, "Settings"));
+    config_finish(&c);
+}
+
 static void test_keyboard_and_outputs(void)
 {
     struct config c;
@@ -425,6 +460,7 @@ int main(void)
     test_values_and_hash_colors();
     test_keyboard_and_outputs();
     test_input();
+    test_rules();
     test_expand();
     test_plugins();
     test_missing_file();

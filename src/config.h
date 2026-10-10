@@ -68,6 +68,16 @@ struct output_cfg {
     bool enabled;
 };
 
+/* [rule:APP_ID]: what to do with a window when it opens. -1 = not set for the tri-states. */
+struct rule_cfg {
+    char *app_id;
+    char *title;       /* only windows whose title contains this, or NULL */
+    int workspace;     /* 1..9, 0 = not set */
+    bool has_pos, has_size;
+    int x, y, w, h;
+    int maximized, minimized, focus;
+};
+
 /* [input] (every pointing device) and [input:touchpad] (on top of it, for touchpads). A tri-state
  * is -1 = leave what the device does by default, 0 = off, 1 = on; an empty string likewise. */
 struct input_cfg {
@@ -104,6 +114,8 @@ struct config {
         /* [output:NAME] */
     struct output_cfg *outputs;
     size_t n_outputs;
+    struct rule_cfg *rules;
+    size_t n_rules;
     /* [keybinds] [mouse] [autostart] */
     struct keybind *binds;
     size_t n_binds;
@@ -142,6 +154,8 @@ bool config_load_string(struct config *c, const char *text, config_log_fn log, v
 /* Exact-modifier match; `sym` is the key's base-level keysym (any case). */
 const struct keybind *config_find_keybind(const struct config *c, uint32_t mods, uint32_t sym);
 const struct output_cfg *config_find_output(const struct config *c, const char *name);
+/* The first rule for this app_id (and title, if the rule has one); NULL if none. */
+const struct rule_cfg *config_find_rule(const struct config *c, const char *app_id, const char *title);
 const struct mousebind *config_find_mousebind(const struct config *c, uint32_t mods,
                                               uint32_t button);
 

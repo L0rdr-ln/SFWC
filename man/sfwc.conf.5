@@ -51,6 +51,19 @@ libinput settings of pointing devices (the second adds to the first, for touchpa
 .B tap_button_map
 (lrm, lmr). A setting that is left out keeps the device's default.
 .TP
+.B [rule:APP_ID]
+What happens to a window of that app id when it opens:
+.B workspace
+(1-9),
+.B position
+(x,y),
+.B size
+(w,h),
+.B maximized, minimized, focus
+(true/false) and
+.B title
+(the title must contain this text).
+.TP
 .B [output:NAME]
 .B scale, position
 (x,y),

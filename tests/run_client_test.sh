@@ -201,6 +201,9 @@ position = 0,0
 [output:HEADLESS-2]
 scale = 2
 position = 0,720
+[rule:sfwc-rule-test]
+workspace = 2
+position = 300,200
 [keybinds]
 $mod+o = move-to-next-output
 CONF
@@ -336,6 +339,7 @@ fx)
     grep -q "window unmapped" "$LOG" || fail "no window was ever closed"
     ;;
 protocols)
+    grep -q "rule for sfwc-rule-test applies" "$LOG" || fail "the window rule was not applied"
     grep -q "cursor shape: text" "$LOG" || fail "the cursor shape request was not honoured"
     ;;
 hypr)

@@ -14,6 +14,8 @@ Versions follow the roadmap milestones while the project is pre-1.0:
   `wlr-output-management` (kanshi, wlr-randr and wdisplays can switch outputs on and off and
   change scale, mode, rotation and position; windows leave an output that goes dark; the last
   output cannot be switched off).
+- Window rules: `[rule:APP_ID]` sections (workspace, position, size, maximized, minimized, focus,
+  title filter), applied when a window opens.
 - `wlr-gamma-control` (night light: gammastep, wlsunset) and `wlr-output-power-management` (screen
   off/on: swayidle, wlopm).
 - `[input]` and `[input:touchpad]` config sections: libinput settings of mice and touchpads (tap,

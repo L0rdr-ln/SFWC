@@ -115,6 +115,29 @@ tap = true
 natural_scroll = true
 ```
 
+## Window rules
+
+`[rule:APP_ID]` sets what happens to a window of that program when it opens. APP_ID is the
+window's app id (the log shows it: `window mapped: title=... app_id=...`). Keys, all optional:
+
+| key | meaning |
+|---|---|
+| `workspace` | 1-9: open on that workspace (the window is not focused until you go there) |
+| `position` | `x,y`: top left of the window with its frame, in layout pixels |
+| `size` | `width,height` of the window's content |
+| `maximized` | `true`: open maximized |
+| `minimized` | `true`: open minimized |
+| `focus` | `false`: do not take the keyboard focus |
+| `title` | only windows whose title contains this text |
+
+```ini
+[rule:org.mozilla.firefox]
+workspace = 2
+[rule:pavucontrol]
+size = 700,450
+focus = false
+```
+
 ## Mouse
 
 ```ini

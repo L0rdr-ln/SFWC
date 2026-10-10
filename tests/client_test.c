@@ -87,6 +87,7 @@ struct app {
     struct wp_fractional_scale_manager_v1 *fscale_mgr;
     struct wp_cursor_shape_manager_v1 *shape_mgr;
     struct xdg_activation_v1 *activation;
+    const char *next_app_id; /* set on the next window that is opened, if not NULL */
     struct zwp_pointer_constraints_v1 *constraints;
     struct zwp_relative_pointer_manager_v1 *rel_mgr;
     int rel_events;
@@ -670,6 +671,10 @@ static void win_open_ex(struct app *app, struct wl_display *d, struct win *w, co
     w->tl = xdg_surface_get_toplevel(w->xs);
     xdg_toplevel_add_listener(w->tl, &win_tl_listener, w);
     xdg_toplevel_set_title(w->tl, title);
+    if (app->next_app_id) {
+        xdg_toplevel_set_app_id(w->tl, app->next_app_id);
+        app->next_app_id = NULL;
+    }
     if (want_deco) {
         if (!app->deco_mgr) {
             fail("compositor does not offer xdg-decoration");
@@ -2301,6 +2306,17 @@ static void run_protocols(struct app *app, struct wl_display *d)
     run_constraints(app, d, &a);
     win_destroy(d, &a);
     run_output_mgmt(app, d);
+
+    /* [rule:sfwc-rule-test] sends the window to workspace 2: it is hidden and gets no focus
+     * until we go there */
+    struct win r;
+    app->next_app_id = "sfwc-rule-test";
+    win_open(app, d, &r, "rule-window", 0xff40a060);
+    expect_focus(app, d, NULL, "a window the rule sent to another workspace took the keyboard focus");
+    vtap(app, d, MOD_ALT, KEY_2);
+    expect_focus(app, d, r.surface, "the window is not on workspace 2");
+    vtap(app, d, MOD_ALT, KEY_1);
+    win_destroy(d, &r);
 }
 
 /* ----------------------------------------------------- scenario: session lock */

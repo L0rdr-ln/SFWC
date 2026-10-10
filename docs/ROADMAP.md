@@ -125,7 +125,7 @@ are roughly in build order; check them off as they land.
   `relative-pointer`, `wlr-output-management` and the libinput settings (`[input]`)
 - Also done: `wlr-gamma-control`, `wlr-output-power-management`
 - Still missing protocols: `ext-workspace`, `ext-image-copy-capture`, tablet support, a cursor hint for locked pointers
-- Window rules (per application: floating geometry, workspace, opacity), perhaps as a plugin
+- Done: window rules (`[rule:APP_ID]`); still open: opacity and per-rule decorations, as a plugin
 - IPC socket and a small control CLI (`sfwcctl`)
 - Portals (screen sharing, file chooser) with xdg-desktop-portal-wlr: document the setup
 - Optional tiling-assist (snap zones)
