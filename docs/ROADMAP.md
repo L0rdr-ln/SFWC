@@ -124,7 +124,8 @@ are roughly in build order; check them off as they land.
 - Done: `cursor-shape`, `fractional-scale`, `viewporter`, `xdg-activation`, `pointer-constraints`,
   `relative-pointer`, `wlr-output-management` and the libinput settings (`[input]`)
 - Also done: `wlr-gamma-control`, `wlr-output-power-management`
-- Still missing protocols: `ext-workspace`, `ext-image-copy-capture`, tablet support, a cursor hint for locked pointers
+- Also done: `ext-workspace-v1`, the cursor hint of locked pointers
+- Still missing protocols: `ext-image-copy-capture`, tablet support
 - Done: window rules (`[rule:APP_ID]`); still open: opacity and per-rule decorations, as a plugin
 - IPC socket and a small control CLI (`sfwcctl`)
 - Portals (screen sharing, file chooser) with xdg-desktop-portal-wlr: document the setup

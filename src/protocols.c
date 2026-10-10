@@ -70,6 +70,11 @@ static void constraint_deactivate(struct server *server)
     }
     wl_list_remove(&server->active_constraint_destroy.link);
     server->active_constraint = NULL;
+    /* a locked pointer may say where it wants to reappear (a text cursor, say) */
+    if (c->type == WLR_POINTER_CONSTRAINT_V1_LOCKED && c->current.cursor_hint.enabled) {
+        wlr_cursor_warp(server->cursor, NULL, server->constraint_ox + c->current.cursor_hint.x,
+                        server->constraint_oy + c->current.cursor_hint.y);
+    }
     wlr_pointer_constraint_v1_send_deactivated(c);
 }
 
@@ -197,6 +202,7 @@ void protocols_init(struct server *server)
 
     constraints_init(server);
     output_mgmt_init(server);
+    ext_workspace_init(server);
 }
 
 void protocols_finish(struct server *server)
@@ -206,4 +212,5 @@ void protocols_finish(struct server *server)
     wl_list_remove(&server->output_power_set_mode.link);
     constraints_finish(server);
     output_mgmt_finish(server);
+    ext_workspace_finish(server);
 }

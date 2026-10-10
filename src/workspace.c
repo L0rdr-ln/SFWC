@@ -40,6 +40,7 @@ void switch_workspace(struct server *server, int ws)
     plugins_workspace_leaving(server, old_ws, ws);
     server->ws_current = ws;
     workspace_refresh(server);
+    ext_workspace_sync(server);
     plugins_workspace_entered(server, old_ws, ws);
 }
 
@@ -68,4 +69,5 @@ void workspace_clamp(struct server *server)
         server->ws_current = last;
     }
     workspace_refresh(server);
+    ext_workspace_sync(server);
 }

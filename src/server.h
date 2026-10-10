@@ -36,6 +36,7 @@
 #include <wlr/types/wlr_layer_shell_v1.h>
 #include <wlr/types/wlr_output.h>
 #include <wlr/types/wlr_output_layout.h>
+#include <wlr/types/wlr_ext_workspace_v1.h>
 #include <wlr/types/wlr_output_management_v1.h>
 #include <wlr/types/wlr_output_power_management_v1.h>
 #include <wlr/types/wlr_pointer.h>
@@ -133,6 +134,9 @@ struct server {
     struct wl_listener output_mgr_apply, output_mgr_test, layout_change;
     struct wlr_output_power_manager_v1 *output_power_mgr;
     struct wl_listener output_power_set_mode;
+    struct wlr_ext_workspace_manager_v1 *ext_ws_mgr;
+    struct wlr_ext_workspace_group_handle_v1 *ext_ws_group;
+    struct wl_listener ext_ws_commit;
     struct wl_list pointer_devs; /* libinput devices, see pointer_config.c */
     /* Virtual input (tests only, SFWC_ENABLE_VIRTUAL_INPUT=1): any client could
      * otherwise inject keystrokes. */
@@ -191,6 +195,7 @@ struct output {
     struct wl_listener frame;
     struct wl_listener request_state;
     struct wl_listener destroy;
+    bool in_ws_group; /* announced in the ext-workspace group */
 };
 
 struct toplevel {
@@ -307,6 +312,10 @@ void protocols_init(struct server *server);
 void protocols_finish(struct server *server);
 void pointer_config_add(struct server *server, struct wlr_input_device *device);
 void pointer_config_reload(struct server *server);
+void ext_workspace_init(struct server *server);
+void ext_workspace_finish(struct server *server);
+void ext_workspace_sync(struct server *server);
+void ext_workspace_outputs(struct server *server);
 void constraints_init(struct server *server);
 void constraints_finish(struct server *server);
 /* Called with the surface under the pointer (NULL if none) and its origin in layout coordinates. */

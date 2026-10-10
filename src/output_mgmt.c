@@ -14,6 +14,7 @@ void output_mgmt_publish(struct server *server)
     if (!config) {
         return;
     }
+    ext_workspace_outputs(server);
     struct output *out;
     wl_list_for_each(out, &server->outputs, link) {
         struct wlr_output_configuration_head_v1 *head =
