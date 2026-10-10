@@ -1,0 +1,14 @@
+name: probe
+on: [push]
+jobs:
+  headers:
+    runs-on: ubuntu-24.04
+    steps:
+      - run: git clone -q --depth 1 -b 0.20.0 https://gitlab.freedesktop.org/wlroots/wlroots.git w
+      - run: |
+          cd w/include/wlr
+          echo "=== blur / background effect"; grep -rn -i "blur\|background_effect" . | head -60
+          echo "=== ext_workspace"; cat types/wlr_ext_workspace_v1.h
+          echo "=== cursor hint"; grep -n "cursor_hint" -B3 -A3 types/wlr_pointer_constraints_v1.h
+          echo "=== scene gamma"; grep -n "gamma" types/wlr_scene.h
+          echo "=== scene effects"; grep -n "wlr_scene_.*create\|opacity\|filter" types/wlr_scene.h | head -50
