@@ -206,6 +206,8 @@ workspace = 2
 position = 300,200
 [keybinds]
 $mod+o = move-to-next-output
+$mod+1 = workspace:1
+$mod+2 = workspace:2
 CONF
     ;;
 multi)
