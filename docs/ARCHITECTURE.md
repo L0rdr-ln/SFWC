@@ -56,7 +56,7 @@ Companion tools only work if the matching protocols exist. Implemented: `xdg-she
 (lock screen), `ext-idle-notify` and idle inhibit (idle daemon),
 `wlr-foreign-toplevel-management` (taskbar), `wlr-screencopy` (screenshots), primary selection
 and `wlr-data-control` (clipboard managers), `viewporter`, `fractional-scale-v1`, `cursor-shape-v1`,
-`xdg-activation-v1`, `pointer-constraints` + `relative-pointer`, `wlr-output-management`. Not yet: a workspace protocol (`ext-workspace`,
+`xdg-activation-v1`, `pointer-constraints` + `relative-pointer`, `wlr-output-management`, `wlr-gamma-control`, `wlr-output-power-management`. Not yet: a workspace protocol (`ext-workspace`,
 which wlroots 0.20 now provides), `ext-image-copy-capture` (wlroots 0.19+), Xwayland.
 
 ## Libraries beyond wlroots

@@ -6,6 +6,8 @@
 #include "server.h"
 
 #include <wlr/types/wlr_cursor_shape_v1.h>
+#include <wlr/types/wlr_gamma_control_v1.h>
+#include <wlr/types/wlr_output_power_management_v1.h>
 #include <wlr/types/wlr_fractional_scale_v1.h>
 #include <wlr/types/wlr_pointer_constraints_v1.h>
 #include <wlr/types/wlr_relative_pointer_v1.h>
@@ -155,6 +157,25 @@ void constraints_finish(struct server *server)
     wl_list_remove(&server->new_constraint.link);
 }
 
+/* Night light (gammastep, wlsunset): the scene graph applies the colour ramps by itself. */
+
+/* Screen off / on (swayidle, wlopm). */
+static void handle_output_power(struct wl_listener *listener, void *data)
+{
+    const struct wlr_output_power_v1_set_mode_event *event = data;
+    struct wlr_output_state state;
+    wlr_output_state_init(&state);
+    wlr_output_state_set_enabled(&state, event->mode == ZWLR_OUTPUT_POWER_V1_MODE_ON);
+    if (wlr_output_commit_state(event->output, &state)) {
+        wlr_log(WLR_INFO, "output %s power %s", event->output->name,
+                event->mode == ZWLR_OUTPUT_POWER_V1_MODE_ON ? "on" : "off");
+        if (event->mode == ZWLR_OUTPUT_POWER_V1_MODE_ON) {
+            wlr_output_schedule_frame(event->output);
+        }
+    }
+    wlr_output_state_finish(&state);
+}
+
 void protocols_init(struct server *server)
 {
     wlr_viewporter_create(server->display);
@@ -168,6 +189,12 @@ void protocols_init(struct server *server)
     server->request_activate.notify = handle_activate;
     wl_signal_add(&server->xdg_activation->events.request_activate, &server->request_activate);
 
+    wlr_scene_set_gamma_control_manager_v1(server->scene, wlr_gamma_control_manager_v1_create(server->display));
+
+    server->output_power_mgr = wlr_output_power_manager_v1_create(server->display);
+    server->output_power_set_mode.notify = handle_output_power;
+    wl_signal_add(&server->output_power_mgr->events.set_mode, &server->output_power_set_mode);
+
     constraints_init(server);
     output_mgmt_init(server);
 }
@@ -176,6 +203,7 @@ void protocols_finish(struct server *server)
 {
     wl_list_remove(&server->request_cursor_shape.link);
     wl_list_remove(&server->request_activate.link);
+    wl_list_remove(&server->output_power_set_mode.link);
     constraints_finish(server);
     output_mgmt_finish(server);
 }

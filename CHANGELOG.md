@@ -14,6 +14,8 @@ Versions follow the roadmap milestones while the project is pre-1.0:
   `wlr-output-management` (kanshi, wlr-randr and wdisplays can switch outputs on and off and
   change scale, mode, rotation and position; windows leave an output that goes dark; the last
   output cannot be switched off).
+- `wlr-gamma-control` (night light: gammastep, wlsunset) and `wlr-output-power-management` (screen
+  off/on: swayidle, wlopm).
 - `[input]` and `[input:touchpad]` config sections: libinput settings of mice and touchpads (tap,
   tap-and-drag, natural scrolling, disable while typing, middle emulation, left handed,
   acceleration speed and profile, click, scroll and tap button map), applied when a device

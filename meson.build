@@ -131,6 +131,12 @@ if get_option('compositor')
       command: [wayland_scanner, 'server-header', '@INPUT@', '@OUTPUT@'])
   endforeach
 
+  # wlr_output_power_management_v1.h includes the server header of its protocol (a wlroots one)
+  proto_headers += custom_target('wlr-output-power-management-unstable-v1-protocol.h',
+    output: 'wlr-output-power-management-unstable-v1-protocol.h',
+    command: [wayland_scanner, 'server-header',
+              wlr_protocol_dir / 'wlr-output-power-management-unstable-v1.xml', '@OUTPUT@'])
+
   sfwc_sources = files(
     'src/main.c', 'src/settings.c', 'src/window.c', 'src/workspace.c',
     'src/decoration.c', 'src/output.c', 'src/input.c', 'src/actions.c', 'src/cursor.c',

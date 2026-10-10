@@ -2618,6 +2618,8 @@ int main(int argc, char **argv)
         "zwp_pointer_constraints_v1",
         "zwp_relative_pointer_manager_v1",
         "zwlr_output_manager_v1",
+        "zwlr_gamma_control_manager_v1",
+        "zwlr_output_power_manager_v1",
     };
     for (size_t i = 0; i < sizeof required / sizeof *required; i++) {
         int found = 0;

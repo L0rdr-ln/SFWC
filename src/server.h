@@ -37,6 +37,7 @@
 #include <wlr/types/wlr_output.h>
 #include <wlr/types/wlr_output_layout.h>
 #include <wlr/types/wlr_output_management_v1.h>
+#include <wlr/types/wlr_output_power_management_v1.h>
 #include <wlr/types/wlr_pointer.h>
 #include <wlr/types/wlr_scene.h>
 #include <wlr/types/wlr_seat.h>
@@ -130,6 +131,8 @@ struct server {
     struct wl_list keyboards;
     struct wlr_output_manager_v1 *output_mgr;
     struct wl_listener output_mgr_apply, output_mgr_test, layout_change;
+    struct wlr_output_power_manager_v1 *output_power_mgr;
+    struct wl_listener output_power_set_mode;
     struct wl_list pointer_devs; /* libinput devices, see pointer_config.c */
     /* Virtual input (tests only, SFWC_ENABLE_VIRTUAL_INPUT=1): any client could
      * otherwise inject keystrokes. */
