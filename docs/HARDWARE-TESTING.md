@@ -13,7 +13,7 @@ tools/try-sfwc.sh
 
 The script builds sfwc if needed (the first build also builds wlroots and takes a few minutes;
 install the packages from the README's *Build and run* section first), starts it with a
-terminal, and when you quit it asks nine yes/no questions and writes a report to
+terminal, and when you quit it asks eleven yes/no questions and writes a report to
 `~/sfwc-report-<time>.txt`. Read the report, then paste it into a
 [new issue](https://github.com/L0rdr-ln/Simple-Floating-Wayland-Compositor/issues/new/choose).
 
