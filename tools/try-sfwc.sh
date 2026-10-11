@@ -132,6 +132,8 @@ ask "Did Alt+1 / Alt+2 switch workspaces?"
 ask "Did a second monitor work (if you have one)?"
 ask "Did touchpad or mouse scrolling and clicking work?"
 ask "Did animations look smooth (no flicker or tearing)?"
+ask "Did wlr-randr (scale, off/on) change the outputs, if you tried it?"
+ask "Did touchpad settings from the [input] section take effect, if you set any?"
 ask "Did quitting with Alt+Esc leave the screen / console in order?"
 make_report "$LOG" "$MODE" "$CODE"
 exit 0

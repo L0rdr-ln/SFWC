@@ -30,6 +30,35 @@ It starts with the example config, not yours (`--my-config` uses yours).
 A virtual machine (QEMU with virtio-gpu) also works for the console level; it checks the DRM
 path but not real GPU quirks.
 
+## In a virtual machine
+
+A VM is a good place for the first real run (GPU path, real input stack, console session).
+With QEMU: `-device virtio-vga-gl -display gtk,gl=on` (or `virtio-gpu-pci`), a USB tablet or mouse
+and keyboard, `-smp 2 -m 4G`. Inside the guest install the packages from the README, then run
+`tools/try-sfwc.sh` on the console (Ctrl+Alt+F3), or from the guest's desktop for the nested level.
+Add a second virtual monitor with `-device virtio-vga,max_outputs=2` to try multi-monitor.
+
+Things worth trying once it runs (each line is one thing to look at; the tools are in most
+distributions):
+
+| What | How | Should |
+|---|---|---|
+| outputs | `wlr-randr`, then `wlr-randr --output NAME --scale 1.5`, `--off`, `--on`, `--pos 1920,0` | every change is applied; windows leave an output that is switched off; the last output cannot be switched off |
+| key events | `wev` | keys, pointer and relative motion are reported; a click focuses |
+| cursor shapes | open a text field in `foot`/a browser | the I-beam appears over text |
+| fractional scale | `wlr-randr --output NAME --scale 1.5`, start `foot` | the text stays sharp (no blurry upscaling) |
+| workspaces in a bar | `waybar` with the `ext/workspaces` module | the bar lists 1-4 and clicking switches |
+| night light | `gammastep -O 3500` (or `wlsunset`) | the screen turns warm; `gammastep -x` resets it |
+| screen off/on | `wlopm --off '*'`, then any key / `wlopm --on '*'` | the screen goes dark and comes back |
+| idle | `swayidle -w timeout 5 'wlopm --off "*"' resume 'wlopm --on "*"'` | dark after 5 s, back on input |
+| pointer lock | a game or `wev`-like tool that locks the pointer (e.g. a Minecraft/SDL3 game) | the cursor stays, the view turns |
+| rules | add `[rule:foot]` with `workspace = 2` to the config, reload | the next `foot` opens on workspace 2 |
+| touchpad | `[input:touchpad]` with `tap = true`, `natural_scroll = true`, reload (`Alt+Shift+r`) | the settings apply without restart |
+| blur | install the `blur` plugin (sfwc-plugins), a wallpaper with `swaybg -i FILE`, a translucent terminal | the wallpaper behind the terminal is frosted |
+
+Anything that does not behave: attach the report of `tools/try-sfwc.sh` (the log has the
+protocol requests at debug level: `SFWC_LOG_LEVEL=debug`).
+
 ## Getting out
 
 - **Alt+Esc** quits sfwc.
