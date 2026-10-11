@@ -28,7 +28,7 @@ sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
     libxcb1-dev libxcb-composite0-dev libxcb-icccm4-dev libxcb-render0-dev \
     libxcb-xfixes0-dev libxcb-res0-dev libxcb-ewmh-dev libxcb-dri3-dev \
     libxcb-present-dev libxcb-shm0-dev libxcb-xinput-dev libxcb-render-util0-dev \
-    foot seatd wlr-randr wev swaybg
+    foot seatd wlr-randr wev swaybg adwaita-icon-theme
 
 # wlroots 0.20 needs meson >= 1.4; Ubuntu 24.04 has 1.3
 need_meson=1
@@ -79,6 +79,8 @@ cat >"$HOME/start-sfwc" <<LAUNCH
 #!/usr/bin/env bash
 # Starts sfwc (built by tools/vm-setup.sh). Log: ~/sfwc-last.log
 export SFWC_TERMINAL=\${SFWC_TERMINAL:-foot}
+# virtual GPUs often do not show the hardware cursor
+export WLR_NO_HARDWARE_CURSORS=\${WLR_NO_HARDWARE_CURSORS:-1}
 ${PLUGIN_PATH:+export SFWC_PLUGIN_PATH="$PLUGIN_PATH"}
 if [ "\${1:-}" = "--report" ]; then
     SFWC_BUILD_DIR="$ROOT/build" exec "$ROOT/tools/try-sfwc.sh" --my-config
