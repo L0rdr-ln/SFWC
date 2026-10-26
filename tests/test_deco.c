@@ -180,6 +180,48 @@ static void test_chrome_pixels(void)
     theme_finish(&t);
 }
 
+static int lum_at(cairo_surface_t *s, int x, int y)
+{
+    int r, g, b, a;
+    pixel(s, x, y, &r, &g, &b, &a);
+    return (r * 3 + g * 6 + b) / 10;
+}
+
+/* the glass look: gradient, gloss, inner highlight and orb buttons change the pixels */
+static void test_glass(void)
+{
+    struct theme flat, glass;
+    theme_init_default(&flat);
+    theme_init_default(&glass);
+    glass.gradient = 1;
+    glass.gloss = 1;
+    glass.inner_highlight = 1;
+    glass.orb_buttons = true;
+    cairo_surface_t *a = deco_render_chrome(&flat, 200, 100, true, "", 1.0);
+    cairo_surface_t *b = deco_render_chrome(&glass, 200, 100, true, "", 1.0);
+
+    /* the titlebar is lighter at the top than at the bottom, the flat one is even */
+    CHECK(lum_at(a, 100, 5) == lum_at(a, 100, 28));
+    CHECK(lum_at(b, 100, 5) > lum_at(b, 100, 28) + 25);
+    /* the gloss lightens the upper half beyond the plain gradient */
+    struct theme grad = flat;
+    grad.gradient = 1;
+    cairo_surface_t *c = deco_render_chrome(&grad, 200, 100, true, "", 1.0);
+    CHECK(lum_at(b, 100, 8) > lum_at(c, 100, 8) + 8);
+    CHECK(lum_at(b, 100, 28) == lum_at(c, 100, 28)); /* below the band the gloss is gone */
+    /* the inner highlight: a light line just inside the border */
+    CHECK(lum_at(b, 100, 2) > lum_at(a, 100, 2) + 30 || lum_at(b, 2, 80) > lum_at(a, 2, 80) + 30);
+    /* the orb: lit at the upper left of its centre, dark at the rim, the flat disc is even */
+    CHECK(is_color(a, 188, 16, 0xf38ba8) && is_color(a, 183, 16, 0xf38ba8));
+    CHECK(lum_at(b, 188, 11) > lum_at(b, 188, 22) + 20);
+    CHECK(!is_color(b, 188, 16, 0xf38ba8) || !is_color(b, 188, 22, 0xf38ba8));
+    cairo_surface_destroy(a);
+    cairo_surface_destroy(b);
+    cairo_surface_destroy(c);
+    theme_finish(&flat);
+    theme_finish(&glass);
+}
+
 static void test_shadow(void)
 {
     struct theme t;
@@ -211,6 +253,7 @@ int main(void)
 {
     test_layout_and_hits();
     test_chrome_pixels();
+    test_glass();
     test_shadow();
     /* release pango/fontconfig globals so that leak checking only sees our own allocations */
     pango_cairo_font_map_set_default(NULL);

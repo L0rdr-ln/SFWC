@@ -56,10 +56,23 @@ radius   = 20         # blur radius
 offset_y = 6
 color    = #00000066
 
+[style]               # optional glass look; everything defaults to flat
+gradient        = 0   # 0-1: titlebar lighter at the top, darker below
+gloss           = 0   # 0-1: white highlight band over the upper half of the titlebar
+inner_highlight = 0   # 0-1: thin light line just inside the border
+buttons         = flat # flat | orb (glossy round buttons)
+text_glow       = #00000000 # halo behind the title (alpha 0 = none), e.g. #ffffffcc
+text_glow_radius = 3  # 1-20
+
 [font]
 family = sans
 size   = 10           # points
 ```
+
+The `[style]` options give glass looks (Windows Vista/7, "Frutiger Aero"). They need translucent
+colors to shine: `#rrggbbaa` for the border and titlebar, and a blur behind the window, which is
+the `blur` plugin of sfwc-plugins (`frame = true`). The Aero desktop that uses all of this is in
+its own repository, sfwc-aero.
 
 How it is used:
 

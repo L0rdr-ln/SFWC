@@ -35,6 +35,13 @@ struct theme {
     int shadow_radius;
     int shadow_offset_y;
     struct color shadow_color;
+    /* [style]: the glass look, all optional (the default is flat) */
+    float gradient;         /* 0..1: titlebar lighter at the top, darker below */
+    float gloss;            /* 0..1: white highlight over the upper half of the titlebar */
+    float inner_highlight;  /* 0..1: thin white line just inside the border */
+    bool orb_buttons;       /* glossy round buttons instead of flat discs */
+    struct color text_glow; /* halo around the title text; alpha 0 = none */
+    int text_glow_radius;
     /* [font] */
     char *font_family;
     int font_size;

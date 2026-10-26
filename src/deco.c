@@ -162,6 +162,47 @@ static struct color mix_color(struct color a, struct color b, double f)
                          (float)(a.b + (b.b - a.b) * f), (float)(a.a + (b.a - a.a) * f)};
 }
 
+static void box_blur_pass(unsigned char *data, int w, int h, int stride, int radius, bool horizontal);
+
+static struct color shade(struct color c, double f) /* f > 0 lighter, f < 0 darker */
+{
+    if (f >= 0) {
+        return (struct color){(float)(c.r + (1 - c.r) * f), (float)(c.g + (1 - c.g) * f),
+                             (float)(c.b + (1 - c.b) * f), c.a};
+    }
+    return (struct color){(float)(c.r * (1 + f)), (float)(c.g * (1 + f)), (float)(c.b * (1 + f)), c.a};
+}
+
+/* A glossy round button: a lit sphere with a rim and a glint on the upper half. */
+static void draw_orb(cairo_t *cr, double cx, double cy, double d, struct color c)
+{
+    double r = d / 2.0;
+    cairo_pattern_t *p = cairo_pattern_create_radial(cx - r * 0.3, cy - r * 0.45, r * 0.1, cx, cy, r);
+    struct color hi = shade(c, 0.55), lo = shade(c, -0.35);
+    cairo_pattern_add_color_stop_rgba(p, 0.0, hi.r, hi.g, hi.b, c.a);
+    cairo_pattern_add_color_stop_rgba(p, 0.55, c.r, c.g, c.b, c.a);
+    cairo_pattern_add_color_stop_rgba(p, 1.0, lo.r, lo.g, lo.b, c.a);
+    cairo_arc(cr, cx, cy, r, 0, 2 * M_PI);
+    cairo_set_source(cr, p);
+    cairo_fill_preserve(cr);
+    cairo_pattern_destroy(p);
+    cairo_set_source_rgba(cr, 0, 0, 0, 0.35 * c.a); /* rim */
+    cairo_set_line_width(cr, 1.0);
+    cairo_stroke(cr);
+    /* glint: a lens shape on the upper half */
+    cairo_save(cr);
+    cairo_translate(cr, cx, cy - r * 0.42);
+    cairo_scale(cr, r * 0.72, r * 0.42);
+    cairo_arc(cr, 0, 0, 1, 0, 2 * M_PI);
+    cairo_restore(cr);
+    cairo_pattern_t *g = cairo_pattern_create_linear(cx, cy - r, cx, cy);
+    cairo_pattern_add_color_stop_rgba(g, 0, 1, 1, 1, 0.85 * c.a);
+    cairo_pattern_add_color_stop_rgba(g, 1, 1, 1, 1, 0.10 * c.a);
+    cairo_set_source(cr, g);
+    cairo_fill(cr);
+    cairo_pattern_destroy(g);
+}
+
 cairo_surface_t *deco_render_chrome(const struct theme *t, int cw, int ch, double focus,
                                     const char *title, double scale)
 {
@@ -186,9 +227,51 @@ cairo_surface_t *deco_render_chrome(const struct theme *t, int cw, int ch, doubl
         if (rt < 0) {
             rt = 0;
         }
-        set_color(cr, mix_color(t->titlebar_unfocused, t->titlebar_focused, focus));
+        struct color tb = mix_color(t->titlebar_unfocused, t->titlebar_focused, focus);
         rrect(cr, bw, bw, cw, th, rt, rt, 0, 0);
-        cairo_fill(cr);
+        if (t->gradient > 0) {
+            struct color top = shade(tb, 0.35 * t->gradient), bot = shade(tb, -0.25 * t->gradient);
+            cairo_pattern_t *p = cairo_pattern_create_linear(0, bw, 0, bw + th);
+            cairo_pattern_add_color_stop_rgba(p, 0, top.r, top.g, top.b, tb.a);
+            cairo_pattern_add_color_stop_rgba(p, 1, bot.r, bot.g, bot.b, tb.a);
+            cairo_set_source(cr, p);
+            cairo_fill(cr);
+            cairo_pattern_destroy(p);
+        } else {
+            set_color(cr, tb);
+            cairo_fill(cr);
+        }
+        if (t->gloss > 0) {
+            /* the classic glass band: the upper half, its lower edge curving down at the right */
+            cairo_save(cr);
+            rrect(cr, bw, bw, cw, th, rt, rt, 0, 0);
+            cairo_clip(cr);
+            cairo_new_path(cr);
+            cairo_move_to(cr, bw, bw);
+            cairo_line_to(cr, bw + cw, bw);
+            cairo_line_to(cr, bw + cw, bw + th * 0.62);
+            cairo_curve_to(cr, bw + cw * 0.7, bw + th * 0.40, bw + cw * 0.3, bw + th * 0.52, bw, bw + th * 0.40);
+            cairo_close_path(cr);
+            cairo_pattern_t *g = cairo_pattern_create_linear(0, bw, 0, bw + th * 0.6);
+            double a = (focus * 0.6 + 0.4) * t->gloss;
+            cairo_pattern_add_color_stop_rgba(g, 0, 1, 1, 1, 0.65 * a);
+            cairo_pattern_add_color_stop_rgba(g, 1, 1, 1, 1, 0.12 * a);
+            cairo_set_source(cr, g);
+            cairo_fill(cr);
+            cairo_pattern_destroy(g);
+            cairo_restore(cr);
+        }
+    }
+
+    if (t->inner_highlight > 0) { /* a thin light line just inside the border: the glass edge */
+        double inset = bw + 0.5;
+        if (ow > 2 * inset && oh > 2 * inset) {
+            double ri = r_top - bw > 0 ? r_top - bw : 0;
+            rrect(cr, inset, inset, ow - 2 * inset, oh - 2 * inset, ri, ri, 0, 0);
+            cairo_set_source_rgba(cr, 1, 1, 1, 0.55 * t->inner_highlight);
+            cairo_set_line_width(cr, 1.0);
+            cairo_stroke(cr);
+        }
     }
 
     /* content area stays transparent (a translucent client shows what is behind it) */
@@ -210,9 +293,14 @@ cairo_surface_t *deco_render_chrome(const struct theme *t, int cw, int ch, doubl
             struct color c = buttons[i] == DECO_CLOSE      ? t->close_button
                              : buttons[i] == DECO_MAXIMIZE ? t->maximize_button
                                                            : t->minimize_button;
-            set_color(cr, mix_color(t->border_unfocused, c, focus)); /* dimmed when unfocused */
-            cairo_arc(cr, bw + cx, bw + th + cy, t->button_size / 2.0, 0, 2 * M_PI);
-            cairo_fill(cr);
+            struct color bc = mix_color(t->border_unfocused, c, focus); /* dimmed when unfocused */
+            if (t->orb_buttons) {
+                draw_orb(cr, bw + cx, bw + th + cy, t->button_size, bc);
+            } else {
+                set_color(cr, bc);
+                cairo_arc(cr, bw + cx, bw + th + cy, t->button_size / 2.0, 0, 2 * M_PI);
+                cairo_fill(cr);
+            }
             if (cx - t->button_size / 2.0 < left_most) {
                 left_most = cx - t->button_size / 2.0;
             }
@@ -234,6 +322,28 @@ cairo_surface_t *deco_render_chrome(const struct theme *t, int cw, int ch, doubl
                 pango_layout_set_single_paragraph_mode(layout, TRUE);
                 int tw, thh;
                 pango_layout_get_pixel_size(layout, &tw, &thh);
+                if (t->text_glow.a > 0) { /* a soft halo behind the text keeps it readable on glass */
+                    int g = t->text_glow_radius, mw = tw + 2 * g + 2, mh = thh + 2 * g + 2;
+                    cairo_surface_t *mask = cairo_image_surface_create(CAIRO_FORMAT_A8, mw, mh);
+                    cairo_t *mc = cairo_create(mask);
+                    cairo_set_source_rgba(mc, 0, 0, 0, 1);
+                    cairo_move_to(mc, g + 1, g + 1);
+                    pango_cairo_show_layout(mc, layout);
+                    cairo_destroy(mc);
+                    cairo_surface_flush(mask);
+                    unsigned char *md = cairo_image_surface_get_data(mask);
+                    int ms = cairo_image_surface_get_stride(mask);
+                    for (int pass = 0; pass < 2; pass++) {
+                        box_blur_pass(md, mw, mh, ms, g > 1 ? g / 2 : 1, true);
+                        box_blur_pass(md, mw, mh, ms, g > 1 ? g / 2 : 1, false);
+                    }
+                    cairo_surface_mark_dirty(mask);
+                    set_color(cr, t->text_glow);
+                    for (int k = 0; k < 3; k++) { /* the blur thins the halo out: stack it */
+                        cairo_mask_surface(cr, mask, x0 - g - 1, bw + (th - thh) / 2.0 - g - 1);
+                    }
+                    cairo_surface_destroy(mask);
+                }
                 set_color(cr, t->title_text);
                 cairo_move_to(cr, x0, bw + (th - thh) / 2.0);
                 pango_cairo_show_layout(cr, layout);

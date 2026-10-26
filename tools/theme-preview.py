@@ -48,26 +48,53 @@ def esc(s):
     return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
 
 
-def window(t, x, y, w, h, title, focused, content_bars):
+def fa(value, key, default="#000000"):
+    return color(value)  # (svg color, opacity)
+
+
+def window(t, x, y, w, h, title, focused, content_bars, uid=""):
     bw = t["bw"]
     th = t["th"]
     r = t["r"]
     border = t["bf"] if focused else t["bu"]
     bar = t["tf"] if focused else t["tu"]
+    b_op = t["bf_o"] if focused else t["bu_o"]
+    bar_op = t["tf_o"] if focused else t["tu_o"]
+    glass = t["gradient"] > 0 or t["gloss"] > 0
+    bar_fill = f"url(#bar{uid})" if t["gradient"] > 0 else bar
     out = []
     # frame: border colored rounded rect, then titlebar and client area inside it
     out.append(f'<g filter="url(#shadow)">' if t["shadow"] else "<g>")
-    out.append(f'<rect x="{x}" y="{y}" width="{w}" height="{h}" rx="{r}" fill="{border}"/>')
+    out.append(f'<rect x="{x}" y="{y}" width="{w}" height="{h}" rx="{r}" fill="{border}" fill-opacity="{b_op:.2f}"/>')
     out.append(
         f'<path d="M{x + bw} {y + th + bw} V{y + bw + r} Q{x + bw} {y + bw} {x + bw + r} {y + bw} '
-        f'H{x + w - bw - r} Q{x + w - bw} {y + bw} {x + w - bw} {y + bw + r} V{y + th + bw} Z" fill="{bar}"/>'
-        if r else f'<rect x="{x + bw}" y="{y + bw}" width="{w - 2 * bw}" height="{th}" fill="{bar}"/>'
+        f'H{x + w - bw - r} Q{x + w - bw} {y + bw} {x + w - bw} {y + bw + r} V{y + th + bw} Z" fill="{bar_fill}" fill-opacity="{bar_op:.2f}"/>'
+        if r else f'<rect x="{x + bw}" y="{y + bw}" width="{w - 2 * bw}" height="{th}" fill="{bar_fill}" fill-opacity="{bar_op:.2f}"/>'
     )
+    if t["gloss"] > 0:
+        a = (0.4 + 0.6 * (1 if focused else 0)) * t["gloss"]
+        out.append(
+            f'<path d="M{x + bw} {y + bw} H{x + w - bw} V{y + bw + th * 0.62:.1f} '
+            f'C{x + bw + (w - 2 * bw) * 0.7:.1f} {y + bw + th * 0.40:.1f} {x + bw + (w - 2 * bw) * 0.3:.1f} {y + bw + th * 0.52:.1f} {x + bw} {y + bw + th * 0.40:.1f} Z" '
+            f'fill="url(#gloss{uid})" opacity="{a:.2f}" clip-path="url(#tb{uid})"/>'
+        )
+    if t["inner"] > 0:
+        out.append(
+            f'<rect x="{x + bw - 0.5}" y="{y + bw - 0.5}" width="{w - 2 * bw + 1}" height="{h - 2 * bw + 1}" rx="{max(r - bw, 0)}" '
+            f'fill="none" stroke="#ffffff" stroke-opacity="{0.55 * t["inner"]:.2f}"/>'
+        )
     cy = y + bw + th
-    out.append(f'<rect x="{x + bw}" y="{cy}" width="{w - 2 * bw}" height="{h - th - 2 * bw}" fill="{mix(t["bg"], t["tx"], 0.07)}"/>')
+    client = mix(t["bg"], t["tx"], 0.07)
+    out.append(f'<rect x="{x + bw}" y="{cy}" width="{w - 2 * bw}" height="{h - th - 2 * bw}" fill="{client}" fill-opacity="{0.55 if glass else 1}"/>')
     out.append("</g>")
     # title text
     fs = t["fs"] + 2
+    glow = f' filter="url(#glow)"' if t["glow"] else ""
+    if t["glow"]:
+        out.append(
+            f'<text x="{x + bw + 12}" y="{y + bw + th / 2 + fs * 0.35:.1f}" font-family="{esc(t["font"])}" '
+            f'font-size="{fs}" fill="{t["glow"]}" stroke="{t["glow"]}" stroke-width="3" filter="url(#glow)">{esc(title)}</text>'
+        )
     out.append(
         f'<text x="{x + bw + 12}" y="{y + bw + th / 2 + fs * 0.35:.1f}" font-family="{esc(t["font"])}" '
         f'font-size="{fs}" fill="{t["tx"]}">{esc(title)}</text>'
@@ -76,8 +103,14 @@ def window(t, x, y, w, h, title, focused, content_bars):
     bs = t["bs"]
     bx = x + w - bw - 10 - bs / 2
     by = y + bw + th / 2
-    for c in (t["c"], t["m"], t["n"]):
-        out.append(f'<circle cx="{bx:.1f}" cy="{by:.1f}" r="{bs / 2:.1f}" fill="{c}"/>')
+    for k, c in zip("cmn", (t["c"], t["m"], t["n"])):
+        if t["orb"]:
+            out.append(f'<circle cx="{bx:.1f}" cy="{by:.1f}" r="{bs / 2:.1f}" fill="url(#orb{k}{uid})" stroke="#000" stroke-opacity="0.35"/>')
+            out.append(
+                f'<ellipse cx="{bx:.1f}" cy="{by - bs * 0.2:.1f}" rx="{bs * 0.36:.1f}" ry="{bs * 0.21:.1f}" fill="url(#glint{uid})"/>'
+            )
+        else:
+            out.append(f'<circle cx="{bx:.1f}" cy="{by:.1f}" r="{bs / 2:.1f}" fill="{c}"/>')
         bx -= bs + t["sp"]
     # mock client content
     for i, ratio in enumerate(content_bars):
@@ -115,7 +148,14 @@ def render(path):
         "sh_o": sh_op,
         "font": FONTS.get(g("font", "family", "sans").lower(), g("font", "family", "sans") + ", sans-serif"),
         "fs": int(g("font", "size", "10")),
+        "gradient": float(g("style", "gradient", "0")),
+        "gloss": float(g("style", "gloss", "0")),
+        "inner": float(g("style", "inner_highlight", "0")),
+        "orb": g("style", "buttons", "flat") == "orb",
+        "glow": color(g("style", "text_glow", "#00000000"))[0] if color(g("style", "text_glow", "#00000000"))[1] > 0 else "",
     }
+    for key, sec in (("bf", "border_focused"), ("bu", "border_unfocused"), ("tf", "titlebar_focused"), ("tu", "titlebar_unfocused")):
+        t[key + "_o"] = color(g("colors", sec))[1]
     # the desktop shows the theme's background (what a wallpaper tool would use); the client
     # area of the mock windows is that color lifted slightly toward the text color
     desk = t["bg"]
@@ -131,10 +171,43 @@ def render(path):
             f'<feDropShadow dx="0" dy="{t["sh_dy"]}" stdDeviation="{max(t["sh_r"] / 2, 0.1):.1f}" '
             f'flood-color="{t["sh_c"]}" flood-opacity="{t["sh_o"]:.2f}"/></filter>'
         )
+    for uid, foc in (("f", True), ("u", False)):
+        bar = t["tf"] if foc else t["tu"]
+        if t["gradient"] > 0:
+            parts.append(
+                f'<linearGradient id="bar{uid}" x1="0" y1="0" x2="0" y2="1">'
+                f'<stop offset="0" stop-color="{mix(bar, "#ffffff", 0.35 * t["gradient"])}"/>'
+                f'<stop offset="1" stop-color="{mix(bar, "#000000", 0.25 * t["gradient"])}"/></linearGradient>'
+            )
+        if t["gloss"] > 0:
+            parts.append(
+                f'<linearGradient id="gloss{uid}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff" stop-opacity="0.65"/>'
+                f'<stop offset="1" stop-color="#fff" stop-opacity="0.12"/></linearGradient>'
+            )
+        if t["orb"]:
+            for k, c in zip("cmn", (t["c"], t["m"], t["n"])):
+                parts.append(
+                    f'<radialGradient id="orb{k}{uid}" cx="0.4" cy="0.3" r="0.8"><stop offset="0" stop-color="{mix(c, "#ffffff", 0.55)}"/>'
+                    f'<stop offset="0.55" stop-color="{c}"/><stop offset="1" stop-color="{mix(c, "#000000", 0.35)}"/></radialGradient>'
+                )
+            parts.append(
+                f'<linearGradient id="glint{uid}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff" stop-opacity="0.85"/>'
+                f'<stop offset="1" stop-color="#fff" stop-opacity="0.1"/></linearGradient>'
+            )
+    if t["glow"]:
+        parts.append('<filter id="glow" x="-10%" y="-40%" width="120%" height="180%"><feGaussianBlur stdDeviation="1.6"/></filter>')
+    if t["gradient"] > 0 or t["gloss"] > 0:  # a sky for the glass to show
+        parts.append(
+            f'<linearGradient id="sky" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="{t["bg"]}"/>'
+            f'<stop offset="1" stop-color="{mix(t["bg"], "#5fd18a", 0.55)}"/></linearGradient>'
+        )
+    for uid in ("f", "u"):
+        parts.append(f'<clipPath id="tb{uid}"><rect x="0" y="0" width="{W}" height="{H}"/></clipPath>')
     parts.append("</defs>")
-    parts.append(f'<rect width="{W}" height="{H}" fill="{desk}"/>')
-    parts.append(window(t, 36, 40, 330, 190, "Files", False, [0.8, 0.55, 0.7, 0.4]))
-    parts.append(window(t, 170, 105, 350, 190, "Terminal", True, [0.5, 0.75, 0.35, 0.6, 0.45]))
+    desk_fill = "url(#sky)" if (t["gradient"] > 0 or t["gloss"] > 0) else desk
+    parts.append(f'<rect width="{W}" height="{H}" fill="{desk_fill}"/>')
+    parts.append(window(t, 36, 40, 330, 190, "Files", False, [0.8, 0.55, 0.7, 0.4], "u"))
+    parts.append(window(t, 170, 105, 350, 190, "Terminal", True, [0.5, 0.75, 0.35, 0.6, 0.45], "f"))
     parts.append("</svg>")
     return "\n".join(parts) + "\n"
 

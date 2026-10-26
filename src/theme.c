@@ -47,6 +47,7 @@ void theme_init_default(struct theme *t)
     t->shadow_radius = 20;
     t->shadow_offset_y = 6;
     t->shadow_color = rgba(0x000000, 0x66 / 255.0f);
+    t->text_glow_radius = 3;
     t->font_family = xstrdup("sans");
     t->font_size = 10;
 }
@@ -109,6 +110,17 @@ static void set_color(struct tloader *l, const char *key, const char *v, struct 
     if (!color_parse(v, out)) {
         report(l, INI_ERROR, "%s: '%s' is not a color (use #rrggbb or #rrggbbaa)", key, v);
     }
+}
+
+static void set_unit(struct tloader *l, const char *key, const char *v, float *out)
+{
+    char *end;
+    double d = strtod(v, &end);
+    if (end == v || *end != '\0' || !(d >= 0.0 && d <= 1.0)) {
+        report(l, INI_ERROR, "%s: '%s' is not a number between 0 and 1", key, v);
+        return;
+    }
+    *out = (float)d;
 }
 
 static void set_int(struct tloader *l, const char *key, const char *v, int min, int max, int *out)
@@ -224,6 +236,28 @@ static int theme_cb(void *user, const char *section, const char *name, const cha
             set_color(l, name, value, &t->shadow_color);
         } else {
             report(l, INI_WARNING, "unknown key '%s' in [shadow]", name);
+        }
+    } else if (!strcmp(section, "style")) {
+        if (!strcmp(name, "gradient")) {
+            set_unit(l, name, value, &t->gradient);
+        } else if (!strcmp(name, "gloss")) {
+            set_unit(l, name, value, &t->gloss);
+        } else if (!strcmp(name, "inner_highlight")) {
+            set_unit(l, name, value, &t->inner_highlight);
+        } else if (!strcmp(name, "buttons")) {
+            if (!strcmp(value, "orb")) {
+                t->orb_buttons = true;
+            } else if (!strcmp(value, "flat")) {
+                t->orb_buttons = false;
+            } else {
+                report(l, INI_ERROR, "buttons: '%s' is not valid (flat | orb)", value);
+            }
+        } else if (!strcmp(name, "text_glow")) {
+            set_color(l, name, value, &t->text_glow);
+        } else if (!strcmp(name, "text_glow_radius")) {
+            set_int(l, name, value, 1, 20, &t->text_glow_radius);
+        } else {
+            report(l, INI_WARNING, "unknown key '%s' in [style]", name);
         }
     } else if (!strcmp(section, "font")) {
         if (!strcmp(name, "family")) {

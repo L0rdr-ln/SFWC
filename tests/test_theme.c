@@ -175,6 +175,31 @@ static void test_errors(void)
     theme_finish(&ref);
 }
 
+static void test_style(void)
+{
+    struct theme t;
+    struct log l = {0};
+    theme_init_default(&t);
+    CHECK(t.gradient == 0 && t.gloss == 0 && t.inner_highlight == 0 && !t.orb_buttons && t.text_glow.a == 0);
+    const char *text = "[style]\n"                /* 1 */
+                       "gradient = 0.5\n"         /* 2 */
+                       "gloss = 2\n"              /* 3 bad */
+                       "inner_highlight = 0.25\n" /* 4 */
+                       "buttons = orb\n"          /* 5 */
+                       "text_glow = #ffffffcc\n"  /* 6 */
+                       "text_glow_radius = 0\n"   /* 7 bad */
+                       "sparkle = yes\n"          /* 8 unknown */
+                       "buttons = square\n";      /* 9 bad, keeps orb */
+    CHECK(theme_load_string(&t, text, collect, &l));
+    CHECK(t.gradient == 0.5f && t.gloss == 0 && t.inner_highlight == 0.25f && t.orb_buttons);
+    CHECK(t.text_glow.a > 0.79f && t.text_glow.a < 0.81f && t.text_glow_radius == 3);
+    CHECK(has_msg(&l, INI_ERROR, 3, "gloss"));
+    CHECK(has_msg(&l, INI_ERROR, 7, "text_glow_radius"));
+    CHECK(has_msg(&l, INI_WARNING, 8, "unknown key 'sparkle' in [style]"));
+    CHECK(has_msg(&l, INI_ERROR, 9, "buttons"));
+    theme_finish(&t);
+}
+
 /* name and font family end up in shell commands: only plain text is accepted */
 static void test_unsafe_text(void)
 {
@@ -230,6 +255,7 @@ int main(void)
     test_shipped_default_matches_builtin();
     test_shipped_light();
     test_errors();
+    test_style();
     test_unsafe_text();
     test_find();
     if (failures) {

@@ -6,6 +6,9 @@ Versions follow the roadmap milestones while the project is pre-1.0:
 ## Unreleased
 
 ### Added
+- Theme `[style]` section for glass looks: titlebar `gradient`, `gloss` band, `inner_highlight`
+  line, glossy `buttons = orb`, and a `text_glow` halo behind the title. All optional (themes
+  stay flat by default); `tools/theme-preview.py` draws them too.
 - Desktop protocols programs expect: `viewporter` and `fractional-scale` (sharp HiDPI: clients get
   the scale of the output they are on, 1.5 and so on), `cursor-shape` (named cursors from the
   compositor's theme), `xdg-activation` (a program can ask for a window to be focused, with a
